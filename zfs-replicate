@@ -1,18 +1,37 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # vim: ai ts=4 sts=4 et sw=4
+
+# Compatibility code for Python 2:
 from __future__ import print_function
 
-import optparse
+# Compatibility code for Python 2.6:
+try:
+    import argparse
+    use_argparse = True
+except:
+    import optparse as argparse
+    class _ArgumentParser(argparse.OptionParser):
+        def add_argument(self, *args, **kw):
+            if args[0][0] != '-':
+                # optparse handles positional arguments differently.
+                return
+            return argparse.OptionParser.add_option(self, *args, **kw)
+    argparse.ArgumentParser = _ArgumentParser
+    use_argparse = False
+
 import os
 import re
 import subprocess
 import sys
 
-# Backport subprocess.check_output for Python 2.6
-if "check_output" not in dir(subprocess):
-    def f(*popenargs, **kwargs):
-        if "stdout" in kwargs:
-            raise ValueError("stdout argument not allowed, it will be overridden.")
+# Compatibility code for Python 2.6:
+if not hasattr(subprocess, "check_output"):
+    def _check_output(*popenargs, **kwargs):
+        r"""Run command with arguments and return its output as a byte string.
+        Backported from Python 2.7 as it's implemented as pure python on stdlib.
+        >>> check_output(['/usr/bin/python', '--version'])
+        Python 2.6.2
+        """
         process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
         output, unused_err = process.communicate()
         retcode = process.poll()
@@ -20,9 +39,11 @@ if "check_output" not in dir(subprocess):
             cmd = kwargs.get("args")
             if cmd is None:
                 cmd = popenargs[0]
-            raise subprocess.CalledProcessError(retcode, cmd)
+            error = subprocess.CalledProcessError(retcode, cmd)
+            error.output = output
+            raise error
         return output
-    subprocess.check_output = f
+    subprocess.check_output = _check_output
 
 def check_output_ssh(host, command, **kw):
     if host == "":
@@ -33,31 +54,40 @@ def check_output_ssh(host, command, **kw):
 # This seems to be None when running under cron.
 term_encoding = sys.stdout.encoding or "ascii"
 
-parser = optparse.OptionParser(
-    usage="usage: %prog [options] source destination",
-    description="Replicate ZFS filesystems to secondary backup server.")
-parser.add_option(      "--delete", dest="delete", action="store_true",
+parser = argparse.ArgumentParser(
+    description="Replicate ZFS filesystems")
+# rsync style options
+parser.add_argument(      "--delete", dest="delete", action="store_true",
     help="delete snapshots on the destination that do not exist on the source")
-parser.add_option(      "--delete-excluded",
+parser.add_argument(      "--delete-excluded",
     dest="delete_excluded", action="store_true",
     help="delete snapshots on the destination excluded by the filter")
-parser.add_option("-n", "--dry-run", dest="dry_run", action="store_true",
+parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
     help="do not make any changes")
-parser.add_option("-r", "--recursive", dest="recursive", action="store_true",
+parser.add_argument("-r", "--recursive", dest="recursive", action="store_true",
     help="replicate child datasets recursively")
-parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
+parser.add_argument("-v", "--verbose", dest="verbose", action="store_true",
     help="print debugging information")
-
-parser.add_option("-u", "--no-mount", dest="no_mount",
+# zfs-replicate specific options
+parser.add_argument("-u", "--no-mount", dest="no_mount", action="store_true",
     help="do not mount the received filesystems on the destination")
-parser.add_option("--snapshot-filter", dest="snapshot_filter",
+parser.add_argument("--snapshot-filter", dest="snapshot_filter",
     help="consider only snapshots matching the specified regex")
+# positional arguments
+parser.add_argument('source', nargs=1,
+    help="the source dataset or filesystem path to replicate from, with optional SSH user@host:")
+parser.add_argument('destination', nargs=1,
+    help="the source dataset or filesystem path to replicate to, with optional SSH user@host:")
 
-options, args = parser.parse_args()
-if len(args) != 2:
-    parser.error("incorrect number of arguments")
+if use_argparse:
+    args = parser.parse_args()
+    source = args.source[0].split(":")
+    destination = args.destination[0].split(":")
+else:
+    (args, positional_args) = parser.parse_args()
+    source = positional_args[0].split(":")
+    destination = positional_args[1].split(":")
 
-source = args[0].split(":")
 source_len = len(source)
 if source_len == 1:
     source_host = ""
@@ -68,7 +98,6 @@ elif source_len == 2:
 else:
     parser.error("source must be of the form host:dataset or host:path")
 
-destination = args[1].split(":")
 destination_len = len(destination)
 if destination_len == 1:
     destination_host = ""
@@ -79,16 +108,16 @@ elif destination_len == 2:
 else:
     parser.error("destination must be of the form host:dataset or host:path")
 
-delete = options.delete
-delete_excluded = options.delete_excluded
-dry_run = options.dry_run
-no_mount = options.no_mount
-recursive = options.recursive
-if options.snapshot_filter:
-    snapshot_filter = re.compile(options.snapshot_filter)
+delete = args.delete
+delete_excluded = args.delete_excluded
+dry_run = args.dry_run
+no_mount = args.no_mount
+recursive = args.recursive
+if args.snapshot_filter:
+    snapshot_filter = re.compile(args.snapshot_filter)
 else:
     snapshot_filter = None
-verbose = options.verbose
+verbose = args.verbose
 
 if source_dataset_root[0] == "/":
     # Convert the source from a filesystem path to a dataset path.
