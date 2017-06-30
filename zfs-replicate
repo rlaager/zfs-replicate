@@ -51,6 +51,231 @@ def check_output_ssh(host, command, **kw):
     command = ["ssh", host] + command
     return subprocess.check_output(command, **kw)
 
+def replicate(
+    source_host, source_filesystem,
+    destination_host, destination_filesystem,
+    delete, delete_excluded, dry_run, no_mount,
+    snapshot_filter, term_encoding, verbose, zfs_send_options):
+
+    error = ""
+    successful_transfers = 0
+
+    if verbose:
+        print("Comparing {0} -> {1}".format(source_filesystem, destination_filesystem),
+            file=sys.stderr)
+
+    # Get a list of source snapshots.
+    source_zfs_list = check_output_ssh(source_host,
+        ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
+         source_filesystem]).decode(term_encoding)
+
+    # Put the source snapshots in a nice list, without the dataset name.
+    source_snapshots = []
+    for line in source_zfs_list.split("\n"):
+        try:
+            (fs, snapshot) = line.split("@")
+            if fs == source_filesystem:
+                source_snapshots.append(snapshot)
+        except:
+            pass
+    # Put the list in newest to oldest order.
+    source_snapshots.reverse()
+
+    source_snapshots_filtered = source_snapshots
+    if snapshot_filter:
+        source_snapshots_filtered = [x for x in source_snapshots
+                                     if snapshot_filter.match(x)]
+
+    if not source_snapshots_filtered:
+        if verbose:
+            print("Skipping {0} as it has no snapshots.".format(
+                source_filesystem), file=sys.stderr)
+        return (True, successful_transfers, error)
+
+    # Get a list of destination snapshots.
+    try:
+        destination_zfs_list = check_output_ssh(destination_host,
+            ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
+             destination_filesystem],
+            stderr=subprocess.STDOUT).decode(term_encoding)
+    except subprocess.CalledProcessError:
+        # We do not want error messages to be treated as snapshot names.
+        destination_zfs_list = ""
+
+    destination_snapshots = []
+    for line in destination_zfs_list.split("\n"):
+        try:
+            (fs, snapshot) = line.split("@")
+            if fs == destination_filesystem:
+                destination_snapshots.append(snapshot)
+        except:
+            continue
+    # Put the list in newest to oldest order.
+    destination_snapshots.reverse()
+
+    most_recent_common_snapshot = None
+    for snapshot in destination_snapshots:
+        # Find the first common snapshot, which is the most recent, as we are
+        # evaluating the destination snapshots from newest to oldest.
+        if snapshot in source_snapshots:
+            most_recent_common_snapshot = snapshot
+            break
+
+    while most_recent_common_snapshot != source_snapshots_filtered[0] and \
+          most_recent_common_snapshot != source_snapshots[0]:
+        # There is something to send...
+
+        if most_recent_common_snapshot:
+            if (not snapshot_filter) and delete:
+                # If there is no filter, we do not need to worry about skipping
+                # some intermediate snapshots. We can send a replication stream
+                # package all the way to the last snapshot.  A replication
+                # stream package (with -F on the receive) also handles
+                # deletions.
+                next_snapshot = source_snapshots_filtered[0]
+            else:
+                # Send the next snapshot after the common one.  As the common
+                # snapshot may be an excluded snapshot, we have to start with
+                # the raw list of snapshots, see what is newer, and then find
+                # the next snapshot that matches the filter.
+                snapshots_left = source_snapshots[
+                    :source_snapshots.index(most_recent_common_snapshot)]
+                snapshots_left.reverse()
+                for snapshot in snapshots_left:
+                    if snapshot in source_snapshots_filtered:
+                        next_snapshot = snapshot
+                        break
+        else:
+            # If there is no snapshot in common, we cannot perform an
+            # incremental send.  We must destroy the entire dataset and start
+            # over.
+
+            if destination_snapshots and not delete:
+                print("{0} has no snapshots in common with the source, so --delete must be specified to allow its snapshots to be destroyed.".format(
+                    destination_filesystem), file=sys.stderr)
+                sys.exit(1)
+            if snapshot_filter and not delete_excluded:
+                for snapshot in destination_snapshots:
+                    if not snapshot_filter.match(snapshot):
+                        print("{0} has no snapshots in common with the source, and has excluded snapshots, so --delete-excluded must be specified to allow its snapshots to be destroyed.".format(
+                            destination_filesystem), file=sys.stderr)
+                        sys.exit(1)
+
+            destroy_command = ["zfs", "destroy", "-r"]
+            if dry_run:
+                destroy_command.append("-n")
+            if verbose:
+                destroy_command.append("-v")
+            destroy_command.append(destination_filesystem)
+
+            if verbose:
+                print(" ".join(destroy_command), file=sys.stderr)
+            try:
+                destroy_command_output = check_output_ssh(destination_host,
+                    destroy_command).decode(term_encoding)
+                if verbose:
+                    print(destroy_command_output)
+            except subprocess.CalledProcessError:
+                if verbose:
+                    print("Destroy failed.  Dataset may not exist.")
+
+            # We destroyed everything on the destination, so we update the list
+            # of destination snapshots for the deletion code.
+            destination_snapshots = source_snapshots_filtered
+
+            # Send the first snapshot.
+            next_snapshot = source_snapshots_filtered[-1]
+
+        send_command = ""
+        if source_host != "":
+            send_command = "ssh {0} ".format(source_host)
+        send_command += "zfs send " + zfs_send_options
+        if dry_run:
+            send_command += "-n "
+        if verbose:
+            send_command += "-v "
+        if most_recent_common_snapshot:
+            # There is a common snapshot, so send an incremental.
+            send_command += "-{0} {1}@{2} ".format(
+                "i" if snapshot_filter else "I",
+                source_filesystem, most_recent_common_snapshot)
+        if (not snapshot_filter) and delete:
+            send_command += "-R "
+        send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
+
+        recv_command = "{0}zfs recv -F{1}{2} {3}".format(
+            "ssh {0} ".format(destination_host) if destination_host != "" else "",
+            "u" if no_mount else "",
+            "v" if verbose else "",
+            destination_filesystem)
+        send_recv_command = send_command + " | " + recv_command
+
+        if verbose:
+            print("")
+            print(send_recv_command, file=sys.stderr)
+
+        if dry_run:
+            # Only run the send command (which will be in its own dry-run mode).
+            send_recv_command = send_command
+
+        # Run the actual replication.  If in verbose mode, pass through the
+        # output in real time.
+        process = subprocess.Popen(send_recv_command, shell=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        share_failed = False
+        while True:
+            nextline = process.stdout.readline().decode(term_encoding)
+            if nextline == "" and process.poll() is not None:
+                break
+            if "share(1M) failed" in nextline:
+                share_failed = True
+            if verbose:
+                sys.stderr.write(nextline)
+                sys.stderr.flush()
+        output = process.communicate()[0].decode(term_encoding)
+        if verbose:
+            sys.stderr.write(output)
+            sys.stderr.flush()
+        if process.returncode != 0 and \
+           not share_failed and "share(1M) failed" not in output:
+            error = "Failed to replicate: {0}".format(source_filesystem)
+            return (False, successful_transfers, error)
+
+        most_recent_common_snapshot = next_snapshot
+        successful_transfers = successful_transfers + 1
+
+    # If there was a snapshot filter, we could not send a replication stream
+    # package, so we have to handle deletions ourselves.
+    if snapshot_filter and delete:
+        snapshots_to_delete = None
+        if delete_excluded:
+            snapshots_to_delete = \
+                set(destination_snapshots) - \
+                set(source_snapshots_filtered)
+        else:
+            destination_snapshots_filtered = [x for x in destination_snapshots
+                                              if snapshot_filter.match(x)]
+            snapshots_to_delete = \
+                set(destination_snapshots_filtered) - \
+                set(source_snapshots_filtered)
+        if snapshots_to_delete:
+            delete_command = ["zfs", "destroy"]
+            if dry_run:
+                delete_command.append("-n")
+            if verbose:
+                delete_command.append("-v")
+            delete_command.append(destination_filesystem + "@" +
+                 ",".join([x for x in snapshots_to_delete]))
+
+            if verbose:
+                print(" ".join(delete_command), file=sys.stderr)
+            delete_command_output = check_output_ssh(destination_host,
+                delete_command).decode(term_encoding)
+            if verbose:
+                print(delete_command_output)
+
+    return (True, successful_transfers, error)
+
 # This seems to be None when running under cron.
 term_encoding = sys.stdout.encoding or "ascii"
 
@@ -176,212 +401,22 @@ for source_filesystem in source_filesystems:
         destination_filesystem = destination_dataset_root + \
             match_filesystem.groups()[0]
 
-    if verbose:
-        print("Comparing {0} -> {1}".format(source_filesystem, destination_filesystem),
-            file=sys.stderr)
-
-    # Get a list of source snapshots.
-    source_zfs_list = check_output_ssh(source_host,
-        ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
-         source_filesystem]).decode(term_encoding)
-
-    # Put the source snapshots in a nice list, without the dataset name.
-    source_snapshots = []
-    for line in source_zfs_list.split("\n"):
-        try:
-            (fs, snapshot) = line.split("@")
-            if fs == source_filesystem:
-                source_snapshots.append(snapshot)
-        except:
-            pass
-    # Put the list in newest to oldest order.
-    source_snapshots.reverse()
-
-    source_snapshots_filtered = source_snapshots
-    if snapshot_filter:
-        source_snapshots_filtered = [x for x in source_snapshots
-                                     if snapshot_filter.match(x)]
-
-    if not source_snapshots_filtered:
-        if verbose:
-            print("Skipping {0} as it has no snapshots.".format(
-                source_filesystem), file=sys.stderr)
-        continue
-
-    # Get a list of destination snapshots.
-    try:
-        destination_zfs_list = check_output_ssh(destination_host,
-            ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
-             destination_filesystem],
-            stderr=subprocess.STDOUT).decode(term_encoding)
-    except subprocess.CalledProcessError:
-        # We do not want error messages to be treated as snapshot names.
-        destination_zfs_list = ""
-
-    destination_snapshots = []
-    for line in destination_zfs_list.split("\n"):
-        try:
-            (fs, snapshot) = line.split("@")
-            if fs == destination_filesystem:
-                destination_snapshots.append(snapshot)
-        except:
-            continue
-    # Put the list in newest to oldest order.
-    destination_snapshots.reverse()
-
-    most_recent_common_snapshot = None
-    for snapshot in destination_snapshots:
-        # Find the first common snapshot, which is the most recent, as we are
-        # evaluating the destination snapshots from newest to oldest.
-        if snapshot in source_snapshots:
-            most_recent_common_snapshot = snapshot
+    while True:
+        (success, successful_transfers, error) = replicate(
+            source_host, source_filesystem,
+            destination_host, destination_filesystem,
+            delete, delete_excluded, dry_run, no_mount,
+            snapshot_filter, term_encoding, verbose, zfs_send_options)
+        if success:
+            # We succeeded.
             break
-
-    while most_recent_common_snapshot != source_snapshots_filtered[0] and \
-          most_recent_common_snapshot != source_snapshots[0]:
-        # There is something to send...
-
-        if most_recent_common_snapshot:
-            if (not snapshot_filter) and delete:
-                # If there is no filter, we do not need to worry about skipping
-                # some intermediate snapshots. We can send a replication stream
-                # package all the way to the last snapshot.  A replication
-                # stream package (with -F on the receive) also handles
-                # deletions.
-                next_snapshot = source_snapshots_filtered[0]
-            else:
-                # Send the next snapshot after the common one.  As the common
-                # snapshot may be an excluded snapshot, we have to start with
-                # the raw list of snapshots, see what is newer, and then find
-                # the next snapshot that matches the filter.
-                snapshots_left = source_snapshots[
-                    :source_snapshots.index(most_recent_common_snapshot)]
-                snapshots_left.reverse()
-                for snapshot in snapshots_left:
-                    if snapshot in source_snapshots_filtered:
-                        next_snapshot = snapshot
-                        break
-        else:
-            # If there is no snapshot in common, we cannot perform an
-            # incremental send.  We must destroy the entire dataset and start
-            # over.
-
-            if destination_snapshots and not delete:
-                print("{0} has no snapshots in common with the source, so --delete must be specified to allow its snapshots to be destroyed.".format(
-                    destination_filesystem), file=sys.stderr)
-                sys.exit(1)
-            if snapshot_filter and not delete_excluded:
-                for snapshot in destination_snapshots:
-                    if not snapshot_filter.match(snapshot):
-                        print("{0} has no snapshots in common with the source, and has excluded snapshots, so --delete-excluded must be specified to allow its snapshots to be destroyed.".format(
-                            destination_filesystem), file=sys.stderr)
-                        sys.exit(1)
-
-            destroy_command = ["zfs", "destroy", "-r"]
-            if dry_run:
-                destroy_command.append("-n")
+        if not dry_run and successful_transfers > 0:
+            # We transferred at least one snapshot, but failed to finish.
+            # Try again.
             if verbose:
-                destroy_command.append("-v")
-            destroy_command.append(destination_filesystem)
-
-            if verbose:
-                print(" ".join(destroy_command), file=sys.stderr)
-            destroy_command_output = check_output_ssh(destination_host,
-                destroy_command).decode(term_encoding)
-            if verbose:
-                print(destroy_command_output)
-
-            # We destroyed everything on the destination, so we update the list
-            # of destination snapshots for the deletion code.
-            destination_snapshots = source_snapshots_filtered
-
-            # Send the first snapshot.
-            next_snapshot = source_snapshots_filtered[-1]
-
-        send_command = ""
-        if source_host != "":
-            send_command = "ssh {0} ".format(source_host)
-        send_command += "zfs send " + zfs_send_options
-        if dry_run:
-            send_command += "-n "
-        if verbose:
-            send_command += "-v "
-        if most_recent_common_snapshot:
-            # There is a common snapshot, so send an incremental.
-            send_command += "-{0} {1}@{2} ".format(
-                "i" if snapshot_filter else "I",
-                source_filesystem, most_recent_common_snapshot)
-        if (not snapshot_filter) and delete:
-            send_command += "-R "
-        send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
-
-        recv_command = "{0}zfs recv -F{1}{2} {3}".format(
-            "ssh {0} ".format(destination_host) if destination_host != "" else "",
-            "u" if no_mount else "",
-            "v" if verbose else "",
-            destination_filesystem)
-        send_recv_command = send_command + " | " + recv_command
-
-        if verbose:
-            print("")
-            print(send_recv_command, file=sys.stderr)
-
-        if dry_run:
-            # Only run the send command (which will be in its own dry-run mode).
-            send_recv_command = send_command
-
-        # Run the actual replication.  If in verbose mode, pass through the
-        # output in real time.
-        process = subprocess.Popen(send_recv_command, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        share_failed = False
-        while True:
-            nextline = process.stdout.readline().decode(term_encoding)
-            if nextline == "" and process.poll() is not None:
-                break
-            if "share(1M) failed" in nextline:
-                share_failed = True
-            if verbose:
-                sys.stderr.write(nextline)
-                sys.stderr.flush()
-        output = process.communicate()[0].decode(term_encoding)
-        if verbose:
-            sys.stderr.write(output)
-            sys.stderr.flush()
-        if process.returncode != 0 and \
-           not share_failed and "share(1M) failed" not in output:
-            print("Failed to replicate: {0}".format(source_filesystem),
-                file=sys.stderr)
-            sys.exit(1)
-
-        most_recent_common_snapshot = next_snapshot
-
-    # If there was a snapshot filter, we could not send a replication stream
-    # package, so we have to handle deletions ourselves.
-    if snapshot_filter and delete:
-        snapshots_to_delete = None
-        if delete_excluded:
-            snapshots_to_delete = \
-                set(destination_snapshots) - \
-                set(source_snapshots_filtered)
-        else:
-            destination_snapshots_filtered = [x for x in destination_snapshots
-                                              if snapshot_filter.match(x)]
-            snapshots_to_delete = \
-                set(destination_snapshots_filtered) - \
-                set(source_snapshots_filtered)
-        if snapshots_to_delete:
-            delete_command = ["zfs", "destroy"]
-            if dry_run:
-                delete_command.append("-n")
-            if verbose:
-                delete_command.append("-v")
-            delete_command.append(destination_filesystem + "@" +
-                 ",".join([x for x in snapshots_to_delete]))
-
-            if verbose:
-                print(" ".join(delete_command), file=sys.stderr)
-            delete_command_output = check_output_ssh(destination_host,
-                delete_command).decode(term_encoding)
-            if verbose:
-                print(delete_command_output)
+                print(error, file=sys.stderr)
+                print("Retrying...")
+            continue
+        # We failed to transfer any snapshots.  Stop.
+        print(error, file=sys.stderr)
+        sys.exit(1)
