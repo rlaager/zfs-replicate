@@ -172,7 +172,8 @@ def replicate(
                 print(" ".join(destroy_command), file=sys.stderr)
             try:
                 destroy_command_output = check_output_ssh(destination_host,
-                    destroy_command).decode(term_encoding)
+                    destroy_command, stderr=subprocess.STDOUT).decode(
+                    term_encoding)
                 if verbose:
                     print(destroy_command_output)
             except subprocess.CalledProcessError:
