@@ -270,10 +270,16 @@ def replicate(
 
             if verbose:
                 print(" ".join(delete_command), file=sys.stderr)
-            delete_command_output = check_output_ssh(destination_host,
-                delete_command).decode(term_encoding)
-            if verbose:
-                print(delete_command_output)
+            try:
+                delete_command_output = check_output_ssh(destination_host,
+                    delete_command, stderr=subprocess.STDOUT).decode(
+                    term_encoding)
+                if verbose:
+                    print(delete_command_output)
+            except subprocess.CalledProcessError as e:
+                delete_command_error = e.output.decode(term_encoding)
+                if "could not find any snapshots" not in delete_command_error:
+                    print(delete_command_error)
 
     return (True, successful_transfers, error)
 
