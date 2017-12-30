@@ -51,6 +51,11 @@ def check_output_ssh(host, command, **kw):
     command = ["ssh", host] + command
     return subprocess.check_output(command, **kw)
 
+def chunks(l, n):
+    l = list(l)
+    for i in range(0, len(l), n):
+        yield l[i:i+n]
+
 def replicate(
     source_host, source_filesystem,
     destination_host, destination_filesystem,
@@ -259,14 +264,14 @@ def replicate(
             snapshots_to_delete = \
                 set(destination_snapshots_filtered) - \
                 set(source_snapshots_filtered)
-        if snapshots_to_delete:
+        for snapshots_to_delete_chunk in chunks(snapshots_to_delete, 2000):
             delete_command = ["zfs", "destroy"]
             if dry_run:
                 delete_command.append("-n")
             if verbose:
                 delete_command.append("-v")
             delete_command.append(destination_filesystem + "@" +
-                 ",".join([x for x in snapshots_to_delete]))
+                 ",".join([x for x in snapshots_to_delete_chunk]))
 
             if verbose:
                 print(" ".join(delete_command), file=sys.stderr)
