@@ -244,7 +244,9 @@ def replicate(
             sys.stderr.flush()
         if process.returncode != 0 and \
            not share_failed and "share(1M) failed" not in output:
-            error = "Failed to replicate: {0}".format(source_filesystem)
+            error = "Failed to replicate {0}:{1} to {2}:{3}".format(
+                source_host, source_filesystem,
+                destination_host, destination_filesystem)
             return (False, successful_transfers, error)
 
         most_recent_common_snapshot = next_snapshot
