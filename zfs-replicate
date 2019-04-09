@@ -402,7 +402,7 @@ if destination_dataset_root[0] == "/":
 if source_dataset_root == destination_dataset_root:
     parser.error("source and destination must be different")
 
-zfs_send_options = ""
+zfs_send_options = "-p "
 for option in ["-e", "-L"]:
     output = ""
     try:
