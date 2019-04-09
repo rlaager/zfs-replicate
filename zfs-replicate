@@ -403,7 +403,7 @@ if source_dataset_root == destination_dataset_root:
     parser.error("source and destination must be different")
 
 zfs_send_options = "-p "
-for option in ["-e", "-L"]:
+for option in ["-c", "-e", "-L"]:
     output = ""
     try:
         check_output_ssh(source_host,
