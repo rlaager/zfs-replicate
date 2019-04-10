@@ -405,13 +405,42 @@ if source_dataset_root == destination_dataset_root:
 zfs_send_options = "-p "
 for option in ["-c", "-e", "-L"]:
     output = ""
+
+    if source_host != destination_host:
+        if verbose:
+            print(
+                "Checking for zfs send {0} on source: ".format(option),
+                end="")
+        try:
+            check_output_ssh(source_host,
+                ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
+                term_encoding)
+        except subprocess.CalledProcessError as e:
+            if "invalid option" in e.output.decode(term_encoding):
+                # We got "invalid option", so the option is not supported on
+                # the source.  Skip it.
+                if verbose:
+                    print("not supported.")
+                continue
+        if verbose:
+            print("supported.")
+
+    if verbose:
+        print(
+            "Checking for zfs send {0} on destination: ".format(option),
+            end="")
     try:
-        check_output_ssh(source_host,
-            ["zfs", "send", option], stderr=subprocess.STDOUT).decode(term_encoding)
+        check_output_ssh(destination_host,
+            ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
+            term_encoding)
     except subprocess.CalledProcessError as e:
         if "invalid option" not in e.output.decode(term_encoding):
             # We did NOT get "invalid option", so the option is supported.
             zfs_send_options += option + " "
+            if verbose:
+                print("supported.")
+        elif verbose:
+            print("not supported.")
 
 if not recursive:
     source_filesystems = [source_dataset_root]
