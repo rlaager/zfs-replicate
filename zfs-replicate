@@ -307,176 +307,181 @@ def replicate(
 
     return (True, successful_transfers, error)
 
-# This seems to be None when running under cron.
-term_encoding = sys.stdout.encoding or "ascii"
+def main():
 
-parser = argparse.ArgumentParser(
-    description="Replicate ZFS filesystems")
-# rsync style options
-parser.add_argument(      "--delete", dest="delete", action="store_true",
-    help="delete snapshots on the destination that do not exist on the source")
-parser.add_argument(      "--delete-excluded",
-    dest="delete_excluded", action="store_true",
-    help="delete snapshots on the destination excluded by the filter")
-parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
-    help="do not make any changes")
-parser.add_argument("-r", "--recursive", dest="recursive", action="store_true",
-    help="replicate child datasets recursively")
-parser.add_argument("-v", "--verbose", dest="verbose", action="store_true",
-    help="print debugging information")
-# zfs-replicate specific options
-parser.add_argument("-u", "--no-mount", dest="no_mount", action="store_true",
-    help="do not mount the received filesystems on the destination")
-parser.add_argument("--snapshot-filter", dest="snapshot_filter",
-    help="consider only snapshots matching the specified regex")
-# positional arguments
-parser.add_argument('source', nargs=1,
-    help="the source dataset or filesystem path to replicate from, with optional SSH user@host:")
-parser.add_argument('destination', nargs=1,
-    help="the source dataset or filesystem path to replicate to, with optional SSH user@host:")
+    # This seems to be None when running under cron.
+    term_encoding = sys.stdout.encoding or "ascii"
 
-if use_argparse:
-    args = parser.parse_args()
-    source = args.source[0].split(":")
-    destination = args.destination[0].split(":")
-else:
-    (args, positional_args) = parser.parse_args()
-    source = positional_args[0].split(":")
-    destination = positional_args[1].split(":")
+    parser = argparse.ArgumentParser(
+        description="Replicate ZFS filesystems")
+    # rsync style options
+    parser.add_argument(      "--delete", dest="delete", action="store_true",
+        help="delete snapshots on the destination that do not exist on the source")
+    parser.add_argument(      "--delete-excluded",
+        dest="delete_excluded", action="store_true",
+        help="delete snapshots on the destination excluded by the filter")
+    parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
+        help="do not make any changes")
+    parser.add_argument("-r", "--recursive", dest="recursive", action="store_true",
+        help="replicate child datasets recursively")
+    parser.add_argument("-v", "--verbose", dest="verbose", action="store_true",
+        help="print debugging information")
+    # zfs-replicate specific options
+    parser.add_argument("-u", "--no-mount", dest="no_mount", action="store_true",
+        help="do not mount the received filesystems on the destination")
+    parser.add_argument("--snapshot-filter", dest="snapshot_filter",
+        help="consider only snapshots matching the specified regex")
+    # positional arguments
+    parser.add_argument('source', nargs=1,
+        help="the source dataset or filesystem path to replicate from, with optional SSH user@host:")
+    parser.add_argument('destination', nargs=1,
+        help="the source dataset or filesystem path to replicate to, with optional SSH user@host:")
 
-source_len = len(source)
-if source_len == 1:
-    source_host = ""
-    source_dataset_root = source[0]
-elif source_len == 2:
-    source_host = source[0]
-    source_dataset_root = source[1]
-else:
-    parser.error("source must be of the form host:dataset or host:path")
+    if use_argparse:
+        args = parser.parse_args()
+        source = args.source[0].split(":")
+        destination = args.destination[0].split(":")
+    else:
+        (args, positional_args) = parser.parse_args()
+        source = positional_args[0].split(":")
+        destination = positional_args[1].split(":")
 
-destination_len = len(destination)
-if destination_len == 1:
-    destination_host = ""
-    destination_dataset_root = destination[0]
-elif destination_len == 2:
-    destination_host = destination[0]
-    destination_dataset_root = destination[1]
-else:
-    parser.error("destination must be of the form host:dataset or host:path")
+    source_len = len(source)
+    if source_len == 1:
+        source_host = ""
+        source_dataset_root = source[0]
+    elif source_len == 2:
+        source_host = source[0]
+        source_dataset_root = source[1]
+    else:
+        parser.error("source must be of the form host:dataset or host:path")
 
-delete = args.delete
-delete_excluded = args.delete_excluded
-dry_run = args.dry_run
-no_mount = args.no_mount
-recursive = args.recursive
-if args.snapshot_filter:
-    snapshot_filter = re.compile(args.snapshot_filter)
-else:
-    snapshot_filter = None
-verbose = args.verbose
+    destination_len = len(destination)
+    if destination_len == 1:
+        destination_host = ""
+        destination_dataset_root = destination[0]
+    elif destination_len == 2:
+        destination_host = destination[0]
+        destination_dataset_root = destination[1]
+    else:
+        parser.error("destination must be of the form host:dataset or host:path")
 
-if source_dataset_root[0] == "/":
-    # Convert the source from a filesystem path to a dataset path.
-    try:
-        source_dataset_root = check_output_ssh(source_host,
-            ["zfs", "list", "-H", "-o", "name", "-s", "name",
-             source_dataset_root])
-    except:
-        print("No ZFS dataset exists at {0}:{1}.".format(
-            source_host, source_dataset_root), file=sys.stderr)
-        sys.exit(1)
-    source_dataset_root = source_dataset_root.decode(term_encoding).strip()
+    delete = args.delete
+    delete_excluded = args.delete_excluded
+    dry_run = args.dry_run
+    no_mount = args.no_mount
+    recursive = args.recursive
+    if args.snapshot_filter:
+        snapshot_filter = re.compile(args.snapshot_filter)
+    else:
+        snapshot_filter = None
+    verbose = args.verbose
 
-if destination_dataset_root[0] == "/":
-    # Convert the destination from a filesystem path to a dataset path.
-    try:
-        destination_dataset_root = check_output_ssh(destination_host,
-            ["zfs", "list", "-H", "-o", "name", "-s", "name",
-             destination_dataset_root])
-    except:
-        print("Please create a ZFS dataset at {0}:{1}.".format(
-            destination_host, destination_dataset_root), file=sys.stderr)
-        sys.exit(1)
-    destination_dataset_root = destination_dataset_root.decode(term_encoding).strip()
+    if source_dataset_root[0] == "/":
+        # Convert the source from a filesystem path to a dataset path.
+        try:
+            source_dataset_root = check_output_ssh(source_host,
+                ["zfs", "list", "-H", "-o", "name", "-s", "name",
+                 source_dataset_root])
+        except:
+            print("No ZFS dataset exists at {0}:{1}.".format(
+                source_host, source_dataset_root), file=sys.stderr)
+            sys.exit(1)
+        source_dataset_root = source_dataset_root.decode(term_encoding).strip()
 
-if source_dataset_root == destination_dataset_root:
-    parser.error("source and destination must be different")
+    if destination_dataset_root[0] == "/":
+        # Convert the destination from a filesystem path to a dataset path.
+        try:
+            destination_dataset_root = check_output_ssh(destination_host,
+                ["zfs", "list", "-H", "-o", "name", "-s", "name",
+                 destination_dataset_root])
+        except:
+            print("Please create a ZFS dataset at {0}:{1}.".format(
+                destination_host, destination_dataset_root), file=sys.stderr)
+            sys.exit(1)
+        destination_dataset_root = destination_dataset_root.decode(term_encoding).strip()
 
-zfs_send_options = "-p "
-for option in ["-c", "-e", "-L"]:
-    output = ""
+    if source_dataset_root == destination_dataset_root:
+        parser.error("source and destination must be different")
 
-    if source_host != destination_host:
+    zfs_send_options = "-p "
+    for option in ["-c", "-e", "-L"]:
+        output = ""
+
+        if source_host != destination_host:
+            if verbose:
+                print(
+                    "Checking for zfs send {0} on source: ".format(option),
+                    end="")
+            try:
+                check_output_ssh(source_host,
+                    ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
+                    term_encoding)
+            except subprocess.CalledProcessError as e:
+                if "invalid option" in e.output.decode(term_encoding):
+                    # We got "invalid option", so the option is not supported on
+                    # the source.  Skip it.
+                    if verbose:
+                        print("not supported.")
+                    continue
+            if verbose:
+                print("supported.")
+
         if verbose:
             print(
-                "Checking for zfs send {0} on source: ".format(option),
+                "Checking for zfs send {0} on destination: ".format(option),
                 end="")
         try:
-            check_output_ssh(source_host,
+            check_output_ssh(destination_host,
                 ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
                 term_encoding)
         except subprocess.CalledProcessError as e:
-            if "invalid option" in e.output.decode(term_encoding):
-                # We got "invalid option", so the option is not supported on
-                # the source.  Skip it.
+            if "invalid option" not in e.output.decode(term_encoding):
+                # We did NOT get "invalid option", so the option is supported.
+                zfs_send_options += option + " "
                 if verbose:
-                    print("not supported.")
-                continue
-        if verbose:
-            print("supported.")
+                    print("supported.")
+            elif verbose:
+                print("not supported.")
 
-    if verbose:
-        print(
-            "Checking for zfs send {0} on destination: ".format(option),
-            end="")
-    try:
-        check_output_ssh(destination_host,
-            ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
-            term_encoding)
-    except subprocess.CalledProcessError as e:
-        if "invalid option" not in e.output.decode(term_encoding):
-            # We did NOT get "invalid option", so the option is supported.
-            zfs_send_options += option + " "
-            if verbose:
-                print("supported.")
-        elif verbose:
-            print("not supported.")
-
-if not recursive:
-    source_filesystems = [source_dataset_root]
-else:
-    # Get a list of local filesystems to sync.
-    source_filesystems = check_output_ssh(source_host,
-        ["zfs", "list", "-Hr", "-t", "filesystem", "-o", "name", "-s", "name",
-         source_dataset_root]).decode(term_encoding).split("\n")
-
-pattern_filesystem = re.compile(r"^" + source_dataset_root + "(/.+|$)")
-for source_filesystem in source_filesystems:
     if not recursive:
-        destination_filesystem = destination_dataset_root
+        source_filesystems = [source_dataset_root]
     else:
-        match_filesystem = pattern_filesystem.match(source_filesystem)
-        if not match_filesystem:
-            continue
-        destination_filesystem = destination_dataset_root + \
-            match_filesystem.groups()[0]
+        # Get a list of local filesystems to sync.
+        source_filesystems = check_output_ssh(source_host,
+            ["zfs", "list", "-Hr", "-t", "filesystem", "-o", "name", "-s", "name",
+             source_dataset_root]).decode(term_encoding).split("\n")
 
-    while True:
-        (success, successful_transfers, error) = replicate(
-            source_host, source_filesystem,
-            destination_host, destination_filesystem,
-            delete, delete_excluded, dry_run, no_mount,
-            snapshot_filter, term_encoding, verbose, zfs_send_options)
-        if success:
-            # We succeeded.
-            break
-        if not dry_run and successful_transfers > 0:
-            # We transferred at least one snapshot, but failed to finish.
-            # Try again.
-            if verbose:
-                print(error, file=sys.stderr)
-                print("Retrying...")
-            continue
-        # We failed to transfer any snapshots.  Stop.
-        print(error, file=sys.stderr)
-        sys.exit(1)
+    pattern_filesystem = re.compile(r"^" + source_dataset_root + "(/.+|$)")
+    for source_filesystem in source_filesystems:
+        if not recursive:
+            destination_filesystem = destination_dataset_root
+        else:
+            match_filesystem = pattern_filesystem.match(source_filesystem)
+            if not match_filesystem:
+                continue
+            destination_filesystem = destination_dataset_root + \
+                match_filesystem.groups()[0]
+
+        while True:
+            (success, successful_transfers, error) = replicate(
+                source_host, source_filesystem,
+                destination_host, destination_filesystem,
+                delete, delete_excluded, dry_run, no_mount,
+                snapshot_filter, term_encoding, verbose, zfs_send_options)
+            if success:
+                # We succeeded.
+                break
+            if not dry_run and successful_transfers > 0:
+                # We transferred at least one snapshot, but failed to finish.
+                # Try again.
+                if verbose:
+                    print(error, file=sys.stderr)
+                    print("Retrying...")
+                continue
+            # We failed to transfer any snapshots.  Stop.
+            print(error, file=sys.stderr)
+            sys.exit(1)
+
+if __name__ == "__main__":
+    main()
