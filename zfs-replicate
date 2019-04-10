@@ -18,6 +18,13 @@
 # Software Foundation, Inc., 51 Franklin St, Fifth Floor,
 # Boston, MA  02110-1301 USA
 
+# pylint: disable=invalid-name
+# pylint: disable=missing-docstring
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-branches
+# pylint: disable=too-many-locals
+# pylint: disable=too-many-statements
+
 # Compatibility code for Python 2:
 from __future__ import print_function
 
@@ -25,18 +32,19 @@ from __future__ import print_function
 try:
     import argparse
     use_argparse = True
-except:
+except ImportError:
+    # pylint: disable=deprecated-module
     import optparse as argparse
+    # pylint: enable=deprecated-module
     class _ArgumentParser(argparse.OptionParser):
         def add_argument(self, *args, **kw):
             if args[0][0] != '-':
                 # optparse handles positional arguments differently.
                 return
-            return argparse.OptionParser.add_option(self, *args, **kw)
+            argparse.OptionParser.add_option(self, *args, **kw)
     argparse.ArgumentParser = _ArgumentParser
     use_argparse = False
 
-import os
 import re
 import subprocess
 import sys
@@ -74,20 +82,22 @@ def chunks(l, n):
         yield l[i:i+n]
 
 def replicate(
-    source_host, source_filesystem,
-    destination_host, destination_filesystem,
-    delete, delete_excluded, dry_run, no_mount,
-    snapshot_filter, term_encoding, verbose, zfs_send_options):
+        source_host, source_filesystem, destination_host,
+        destination_filesystem, delete, delete_excluded, dry_run, no_mount,
+        snapshot_filter, term_encoding, verbose, zfs_send_options):
 
     error = ""
     successful_transfers = 0
 
     if verbose:
-        print("Comparing {0} -> {1}".format(source_filesystem, destination_filesystem),
+        print(
+            "Comparing {0} -> {1}".format(
+                source_filesystem, destination_filesystem),
             file=sys.stderr)
 
     # Get a list of source snapshots.
-    source_zfs_list = check_output_ssh(source_host,
+    source_zfs_list = check_output_ssh(
+        source_host,
         ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
          source_filesystem]).decode(term_encoding)
 
@@ -98,7 +108,7 @@ def replicate(
             (fs, snapshot) = line.split("@")
             if fs == source_filesystem:
                 source_snapshots.append(snapshot)
-        except:
+        except ValueError:
             pass
     # Put the list in newest to oldest order.
     source_snapshots.reverse()
@@ -116,7 +126,8 @@ def replicate(
 
     # Get a list of destination snapshots.
     try:
-        destination_zfs_list = check_output_ssh(destination_host,
+        destination_zfs_list = check_output_ssh(
+            destination_host,
             ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
              destination_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding)
@@ -130,7 +141,7 @@ def replicate(
             (fs, snapshot) = line.split("@")
             if fs == destination_filesystem:
                 destination_snapshots.append(snapshot)
-        except:
+        except ValueError:
             continue
     # Put the list in newest to oldest order.
     destination_snapshots.reverse()
@@ -173,14 +184,21 @@ def replicate(
             # over.
 
             if destination_snapshots and not delete:
-                print("{0} has no snapshots in common with the source, so --delete must be specified to allow its snapshots to be destroyed.".format(
-                    destination_filesystem), file=sys.stderr)
+                print(
+                    "{0} has no snapshots in common with the source, so " \
+                    "--delete must be specified to allow its snapshots to " \
+                    "be destroyed.".format(
+                        destination_filesystem), file=sys.stderr)
                 sys.exit(1)
             if snapshot_filter and not delete_excluded:
                 for snapshot in destination_snapshots:
                     if not snapshot_filter.match(snapshot):
-                        print("{0} has no snapshots in common with the source, and has excluded snapshots, so --delete-excluded must be specified to allow its snapshots to be destroyed.".format(
-                            destination_filesystem), file=sys.stderr)
+                        print(
+                            "{0} has no snapshots in common with the " \
+                            "source, and has excluded snapshots, so " \
+                            "--delete-excluded must be specified to allow " \
+                            "its snapshots to be destroyed.".format(
+                                destination_filesystem), file=sys.stderr)
                         sys.exit(1)
 
             destroy_command = ["zfs", "destroy", "-r"]
@@ -193,9 +211,9 @@ def replicate(
             if verbose:
                 print(" ".join(destroy_command), file=sys.stderr)
             try:
-                destroy_command_output = check_output_ssh(destination_host,
-                    destroy_command, stderr=subprocess.STDOUT).decode(
-                    term_encoding)
+                destroy_command_output = check_output_ssh(
+                    destination_host, destroy_command,
+                    stderr=subprocess.STDOUT).decode(term_encoding)
                 if verbose:
                     print(destroy_command_output)
             except subprocess.CalledProcessError:
@@ -243,8 +261,9 @@ def replicate(
 
         # Run the actual replication.  If in verbose mode, pass through the
         # output in real time.
-        process = subprocess.Popen(send_recv_command, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(
+            send_recv_command, shell=True, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT)
         share_failed = False
         while True:
             nextline = process.stdout.readline().decode(term_encoding)
@@ -289,15 +308,16 @@ def replicate(
                 delete_command.append("-n")
             if verbose:
                 delete_command.append("-v")
-            delete_command.append(destination_filesystem + "@" +
-                 ",".join([x for x in snapshots_to_delete_chunk]))
+            delete_command.append(
+                destination_filesystem + "@" + ",".join(
+                    [x for x in snapshots_to_delete_chunk]))
 
             if verbose:
                 print(" ".join(delete_command), file=sys.stderr)
             try:
-                delete_command_output = check_output_ssh(destination_host,
-                    delete_command, stderr=subprocess.STDOUT).decode(
-                    term_encoding)
+                delete_command_output = check_output_ssh(
+                    destination_host, delete_command,
+                    stderr=subprocess.STDOUT).decode(term_encoding)
                 if verbose:
                     print(delete_command_output)
             except subprocess.CalledProcessError as e:
@@ -315,27 +335,37 @@ def main():
     parser = argparse.ArgumentParser(
         description="Replicate ZFS filesystems")
     # rsync style options
-    parser.add_argument(      "--delete", dest="delete", action="store_true",
+    parser.add_argument(
+        "--delete", dest="delete", action="store_true",
         help="delete snapshots on the destination that do not exist on the source")
-    parser.add_argument(      "--delete-excluded",
-        dest="delete_excluded", action="store_true",
+    parser.add_argument(
+        "--delete-excluded", dest="delete_excluded", action="store_true",
         help="delete snapshots on the destination excluded by the filter")
-    parser.add_argument("-n", "--dry-run", dest="dry_run", action="store_true",
+    parser.add_argument(
+        "-n", "--dry-run", dest="dry_run", action="store_true",
         help="do not make any changes")
-    parser.add_argument("-r", "--recursive", dest="recursive", action="store_true",
+    parser.add_argument(
+        "-r", "--recursive", dest="recursive", action="store_true",
         help="replicate child datasets recursively")
-    parser.add_argument("-v", "--verbose", dest="verbose", action="store_true",
+    parser.add_argument(
+        "-v", "--verbose", dest="verbose", action="store_true",
         help="print debugging information")
     # zfs-replicate specific options
-    parser.add_argument("-u", "--no-mount", dest="no_mount", action="store_true",
+    parser.add_argument(
+        "-u", "--no-mount", dest="no_mount", action="store_true",
         help="do not mount the received filesystems on the destination")
-    parser.add_argument("--snapshot-filter", dest="snapshot_filter",
+    parser.add_argument(
+        "--snapshot-filter", dest="snapshot_filter",
         help="consider only snapshots matching the specified regex")
     # positional arguments
-    parser.add_argument('source', nargs=1,
-        help="the source dataset or filesystem path to replicate from, with optional SSH user@host:")
-    parser.add_argument('destination', nargs=1,
-        help="the source dataset or filesystem path to replicate to, with optional SSH user@host:")
+    parser.add_argument(
+        "source", nargs=1,
+        help="the source dataset or filesystem path to replicate from, with " \
+             "optional SSH user@host:")
+    parser.add_argument(
+        "destination", nargs=1,
+        help="the source dataset or filesystem path to replicate to, with " \
+             "optional SSH user@host:")
 
     if use_argparse:
         args = parser.parse_args()
@@ -380,10 +410,11 @@ def main():
     if source_dataset_root[0] == "/":
         # Convert the source from a filesystem path to a dataset path.
         try:
-            source_dataset_root = check_output_ssh(source_host,
+            source_dataset_root = check_output_ssh(
+                source_host,
                 ["zfs", "list", "-H", "-o", "name", "-s", "name",
                  source_dataset_root])
-        except:
+        except subprocess.CalledProcessError:
             print("No ZFS dataset exists at {0}:{1}.".format(
                 source_host, source_dataset_root), file=sys.stderr)
             sys.exit(1)
@@ -392,35 +423,37 @@ def main():
     if destination_dataset_root[0] == "/":
         # Convert the destination from a filesystem path to a dataset path.
         try:
-            destination_dataset_root = check_output_ssh(destination_host,
+            destination_dataset_root = check_output_ssh(
+                destination_host,
                 ["zfs", "list", "-H", "-o", "name", "-s", "name",
                  destination_dataset_root])
-        except:
-            print("Please create a ZFS dataset at {0}:{1}.".format(
-                destination_host, destination_dataset_root), file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print(
+                "Please create a ZFS dataset at {0}:{1}.".format(
+                    destination_host, destination_dataset_root),
+                file=sys.stderr)
             sys.exit(1)
-        destination_dataset_root = destination_dataset_root.decode(term_encoding).strip()
+        destination_dataset_root = destination_dataset_root.decode(
+            term_encoding).strip()
 
     if source_dataset_root == destination_dataset_root:
         parser.error("source and destination must be different")
 
     zfs_send_options = "-p "
     for option in ["-c", "-e", "-L"]:
-        output = ""
-
         if source_host != destination_host:
             if verbose:
                 print(
                     "Checking for zfs send {0} on source: ".format(option),
                     end="")
             try:
-                check_output_ssh(source_host,
-                    ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
-                    term_encoding)
+                check_output_ssh(
+                    source_host, ["zfs", "send", option],
+                    stderr=subprocess.STDOUT).decode(term_encoding)
             except subprocess.CalledProcessError as e:
                 if "invalid option" in e.output.decode(term_encoding):
-                    # We got "invalid option", so the option is not supported on
-                    # the source.  Skip it.
+                    # We got "invalid option", so the option is not supported
+                    # on the source.  Skip it.
                     if verbose:
                         print("not supported.")
                     continue
@@ -432,9 +465,9 @@ def main():
                 "Checking for zfs send {0} on destination: ".format(option),
                 end="")
         try:
-            check_output_ssh(destination_host,
-                ["zfs", "send", option], stderr=subprocess.STDOUT).decode(
-                term_encoding)
+            check_output_ssh(
+                destination_host, ["zfs", "send", option],
+                stderr=subprocess.STDOUT).decode(term_encoding)
         except subprocess.CalledProcessError as e:
             if "invalid option" not in e.output.decode(term_encoding):
                 # We did NOT get "invalid option", so the option is supported.
@@ -448,9 +481,10 @@ def main():
         source_filesystems = [source_dataset_root]
     else:
         # Get a list of local filesystems to sync.
-        source_filesystems = check_output_ssh(source_host,
-            ["zfs", "list", "-Hr", "-t", "filesystem", "-o", "name", "-s", "name",
-             source_dataset_root]).decode(term_encoding).split("\n")
+        source_filesystems = check_output_ssh(
+            source_host,
+            ["zfs", "list", "-Hr", "-t", "filesystem", "-o", "name", "-s",
+             "name", source_dataset_root]).decode(term_encoding).split("\n")
 
     pattern_filesystem = re.compile(r"^" + source_dataset_root + "(/.+|$)")
     for source_filesystem in source_filesystems:
