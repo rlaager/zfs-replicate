@@ -98,7 +98,7 @@ def replicate(
     # Get a list of source snapshots.
     source_zfs_list = check_output_ssh(
         source_host,
-        ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
+        ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name", "-d", "1",
          source_filesystem]).decode(term_encoding)
 
     # Put the source snapshots in a nice list, without the dataset name.
@@ -128,7 +128,7 @@ def replicate(
     try:
         destination_zfs_list = check_output_ssh(
             destination_host,
-            ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name",
+            ["zfs", "list", "-Hr", "-t", "snapshot", "-o", "name", "-d", "1",
              destination_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding)
     except subprocess.CalledProcessError:
