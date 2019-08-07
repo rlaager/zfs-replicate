@@ -36,6 +36,7 @@ except ImportError:
     # pylint: disable=deprecated-module
     import optparse as argparse
     # pylint: enable=deprecated-module
+
     class _ArgumentParser(argparse.OptionParser):
         def add_argument(self, *args, **kw):
             if args[0][0] != '-':
@@ -53,11 +54,13 @@ import sys
 if not hasattr(subprocess, "check_output"):
     def _check_output(*popenargs, **kwargs):
         r"""Run command with arguments and return its output as a byte string.
-        Backported from Python 2.7 as it's implemented as pure python on stdlib.
+        Backported from Python 2.7 as it's implemented as pure python on
+        stdlib.
         >>> check_output(['/usr/bin/python', '--version'])
         Python 2.6.2
         """
-        process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
+        process = subprocess.Popen(
+            stdout=subprocess.PIPE, *popenargs, **kwargs)
         output, unused_err = process.communicate()
         retcode = process.poll()
         if retcode:
@@ -76,10 +79,10 @@ def check_output_ssh(host, command, **kw):
     command = ["ssh", host] + command
     return subprocess.check_output(command, **kw)
 
-def chunks(l, n):
-    l = list(l)
-    for i in range(0, len(l), n):
-        yield l[i:i+n]
+def chunks(items, n):
+    items = list(items)
+    for i in range(0, len(items), n):
+        yield items[i:(i + n)]
 
 def replicate(
         source_host, source_filesystem, destination_host,
@@ -155,7 +158,8 @@ def replicate(
             break
 
     while most_recent_common_snapshot != source_snapshots_filtered[0] and \
-          most_recent_common_snapshot != source_snapshots[0]:
+        most_recent_common_snapshot != source_snapshots[0]:
+
         # There is something to send...
 
         if most_recent_common_snapshot:
@@ -185,8 +189,8 @@ def replicate(
 
             if destination_snapshots and not delete:
                 print(
-                    "{0} has no snapshots in common with the source, so " \
-                    "--delete must be specified to allow its snapshots to " \
+                    "{0} has no snapshots in common with the source, so "
+                    "--delete must be specified to allow its snapshots to "
                     "be destroyed.".format(
                         destination_filesystem), file=sys.stderr)
                 sys.exit(1)
@@ -194,9 +198,9 @@ def replicate(
                 for snapshot in destination_snapshots:
                     if not snapshot_filter.match(snapshot):
                         print(
-                            "{0} has no snapshots in common with the " \
-                            "source, and has excluded snapshots, so " \
-                            "--delete-excluded must be specified to allow " \
+                            "{0} has no snapshots in common with the "
+                            "source, and has excluded snapshots, so "
+                            "--delete-excluded must be specified to allow "
                             "its snapshots to be destroyed.".format(
                                 destination_filesystem), file=sys.stderr)
                         sys.exit(1)
@@ -245,7 +249,8 @@ def replicate(
         send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
 
         recv_command = "{0}zfs recv -F{1}{2} {3}".format(
-            "ssh {0} ".format(destination_host) if destination_host != "" else "",
+            "ssh {0} ".format(destination_host)
+            if destination_host != "" else "",
             "u" if no_mount else "",
             "v" if verbose else "",
             destination_filesystem)
@@ -256,7 +261,7 @@ def replicate(
             print(send_recv_command, file=sys.stderr)
 
         if dry_run:
-            # Only run the send command (which will be in its own dry-run mode).
+            # Only run the send command (which will be in its dry-run mode).
             send_recv_command = send_command
 
         # Run the actual replication.  If in verbose mode, pass through the
@@ -337,7 +342,8 @@ def main():
     # rsync style options
     parser.add_argument(
         "--delete", dest="delete", action="store_true",
-        help="delete snapshots on the destination that do not exist on the source")
+        help="delete snapshots on the destination that do not exist on the "
+             "source")
     parser.add_argument(
         "--delete-excluded", dest="delete_excluded", action="store_true",
         help="delete snapshots on the destination excluded by the filter")
@@ -350,7 +356,7 @@ def main():
     parser.add_argument(
         "-v", "--verbose", dest="verbose", action="store_true",
         help="print debugging information")
-    # zfs-replicate specific options
+    # zfs_replicate specific options
     parser.add_argument(
         "-u", "--no-mount", dest="no_mount", action="store_true",
         help="do not mount the received filesystems on the destination")
@@ -360,11 +366,11 @@ def main():
     # positional arguments
     parser.add_argument(
         "source", nargs=1,
-        help="the source dataset or filesystem path to replicate from, with " \
+        help="the source dataset or filesystem path to replicate from, with "
              "optional SSH user@host:")
     parser.add_argument(
         "destination", nargs=1,
-        help="the source dataset or filesystem path to replicate to, with " \
+        help="the source dataset or filesystem path to replicate to, with "
              "optional SSH user@host:")
 
     if use_argparse:
@@ -394,7 +400,8 @@ def main():
         destination_host = destination[0]
         destination_dataset_root = destination[1]
     else:
-        parser.error("destination must be of the form host:dataset or host:path")
+        parser.error(
+            "destination must be of the form host:dataset or host:path")
 
     delete = args.delete
     delete_excluded = args.delete_excluded
