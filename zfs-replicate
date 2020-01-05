@@ -127,6 +127,61 @@ def replicate(
                 source_filesystem), file=sys.stderr)
         return (True, successful_transfers, error)
 
+    zfs_initial_recv_options = []
+    zfs_recv_options = ["-F"]
+    if no_mount:
+        zfs_recv_options.append("-u")
+    if verbose:
+        zfs_recv_options.append("-v")
+
+    # Is the source encrypted?
+    try:
+        source_encryption = check_output_ssh(
+            source_host,
+            ["zfs", "get", "-H", "-o", "value", "encryption",
+            source_filesystem],
+            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+    except subprocess.CalledProcessError:
+        # The source must not support encryption.
+        source_encryption = "off"
+
+    # Is the destination encrypted?
+    try:
+        destination_encryption = check_output_ssh(
+            destination_host,
+            ["zfs", "get", "-H", "-o", "value", "encryption",
+            destination_filesystem],
+            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+    except subprocess.CalledProcessError:
+        destination_encryption = check_output_ssh(
+            destination_host,
+            ["zfs", "get", "-H", "-o", "value", "encryption",
+            "/".join(destination_filesystem.split("/")[:-1])],
+            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+        try:
+            # If it does not exist, check the parent.
+            destination_encryption = check_output_ssh(
+                destination_host,
+                ["zfs", "get", "-H", "-o", "value", "encryption",
+                "/".join(destination_filesystem.split("/")[:-1])],
+                stderr=subprocess.STDOUT).decode(term_encoding).strip()
+        except subprocess.CalledProcessError:
+            # The destination must not support encryption.
+            destination_encryption = "off"
+
+    if source_encryption != "off" and destination_encryption == "off":
+        print(
+            "{0} is encrypted, but the destination is not.".format(
+                source_filesystem), file=sys.stderr)
+        sys.exit(1)
+
+    if destination_encryption != "off":
+        # Encryption is incompatible with embedded data.
+        zfs_send_options = [x for x in zfs_send_options if x != '-e']
+        # Use the destination's encryption parameters.  This may ONLY be
+        # specified for the initial send, not for any incrementals.
+        zfs_initial_recv_options.append("-x encryption")
+
     # Get a list of destination snapshots.
     try:
         destination_zfs_list = check_output_ssh(
@@ -234,7 +289,7 @@ def replicate(
         send_command = ""
         if source_host != "":
             send_command = "ssh {0} ".format(source_host)
-        send_command += "zfs send " + zfs_send_options
+        send_command += "zfs send " + " ".join(zfs_send_options) + " "
         if dry_run:
             send_command += "-n "
         if verbose:
@@ -248,11 +303,12 @@ def replicate(
             send_command += "-R "
         send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
 
-        recv_command = "{0}zfs recv -F{1}{2} {3}".format(
+        recv_command = "{0}zfs recv {1}{2} {3}".format(
             "ssh {0} ".format(destination_host)
             if destination_host != "" else "",
-            "u" if no_mount else "",
-            "v" if verbose else "",
+            " ".join(zfs_recv_options),
+            "" if most_recent_common_snapshot else
+            " " + " ".join(zfs_initial_recv_options),
             destination_filesystem)
         send_recv_command = send_command + " | " + recv_command
 
@@ -446,7 +502,7 @@ def main():
     if source_dataset_root == destination_dataset_root:
         parser.error("source and destination must be different")
 
-    zfs_send_options = "-p "
+    zfs_send_options = ["-p"]
     for option in ["-c", "-e", "-L"]:
         if source_host != destination_host:
             if verbose:
@@ -478,7 +534,7 @@ def main():
         except subprocess.CalledProcessError as e:
             if "invalid option" not in e.output.decode(term_encoding):
                 # We did NOT get "invalid option", so the option is supported.
-                zfs_send_options += option + " "
+                zfs_send_options.append(option)
                 if verbose:
                     print("supported.")
             elif verbose:
