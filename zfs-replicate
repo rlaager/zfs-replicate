@@ -131,6 +131,17 @@ def replicate(
     zfs_recv_options = ["-F"]
     if no_mount:
         zfs_recv_options.append("-u")
+        # Convert canmount=on to canmount=noauto.  Using zfs recv -u is NOT
+        # sufficient by itself, as the filesystems would still mount on boot.
+        # But even with -o canmount=noauto, we will need -u or they will be
+        # mounted immediately (which seems wrong, but whatever).
+        source_canmount = check_output_ssh(
+            source_host,
+            ["zfs", "get", "-H", "-o", "value", "canmount",
+            source_filesystem],
+            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+        if source_canmount == "on":
+            zfs_recv_options.append("-o canmount=noauto")
     if verbose:
         zfs_recv_options.append("-v")
 
