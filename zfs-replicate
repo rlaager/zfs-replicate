@@ -164,11 +164,6 @@ def replicate(
             destination_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
     except subprocess.CalledProcessError:
-        destination_encryption = check_output_ssh(
-            destination_host,
-            ["zfs", "get", "-H", "-o", "value", "encryption",
-            "/".join(destination_filesystem.split("/")[:-1])],
-            stderr=subprocess.STDOUT).decode(term_encoding).strip()
         try:
             # If it does not exist, check the parent.
             destination_encryption = check_output_ssh(
