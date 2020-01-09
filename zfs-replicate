@@ -138,7 +138,7 @@ def replicate(
         source_canmount = check_output_ssh(
             source_host,
             ["zfs", "get", "-H", "-o", "value", "canmount",
-            source_filesystem],
+             source_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
         if source_canmount == "on":
             zfs_recv_options.append("-o canmount=noauto")
@@ -150,7 +150,7 @@ def replicate(
         source_encryption = check_output_ssh(
             source_host,
             ["zfs", "get", "-H", "-o", "value", "encryption",
-            source_filesystem],
+             source_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
     except subprocess.CalledProcessError:
         # The source must not support encryption.
@@ -161,7 +161,7 @@ def replicate(
         destination_encryption = check_output_ssh(
             destination_host,
             ["zfs", "get", "-H", "-o", "value", "encryption",
-            destination_filesystem],
+             destination_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
     except subprocess.CalledProcessError:
         try:
@@ -169,7 +169,7 @@ def replicate(
             destination_encryption = check_output_ssh(
                 destination_host,
                 ["zfs", "get", "-H", "-o", "value", "encryption",
-                "/".join(destination_filesystem.split("/")[:-1])],
+                 "/".join(destination_filesystem.split("/")[:-1])],
                 stderr=subprocess.STDOUT).decode(term_encoding).strip()
         except subprocess.CalledProcessError:
             # The destination must not support encryption.
