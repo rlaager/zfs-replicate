@@ -403,27 +403,27 @@ def main():
         description="Replicate ZFS filesystems")
     # rsync style options
     parser.add_argument(
-        "--delete", dest="delete", action="store_true",
+        "--delete", action="store_true",
         help="delete snapshots on the destination that do not exist on the "
              "source")
     parser.add_argument(
-        "--delete-excluded", dest="delete_excluded", action="store_true",
+        "--delete-excluded", action="store_true",
         help="delete snapshots on the destination excluded by the filter")
     parser.add_argument(
-        "-n", "--dry-run", dest="dry_run", action="store_true",
+        "-n", "--dry-run", action="store_true",
         help="do not make any changes")
     parser.add_argument(
-        "-r", "--recursive", dest="recursive", action="store_true",
+        "-r", "--recursive", action="store_true",
         help="replicate child datasets recursively")
     parser.add_argument(
-        "-v", "--verbose", dest="verbose", action="store_true",
+        "-v", "--verbose", action="store_true",
         help="print debugging information")
     # zfs_replicate specific options
     parser.add_argument(
-        "-u", "--no-mount", dest="no_mount", action="store_true",
+        "-u", "--no-mount", action="store_true",
         help="do not mount the received filesystems on the destination")
     parser.add_argument(
-        "--snapshot-filter", dest="snapshot_filter",
+        "--snapshot-filter",
         help="consider only snapshots matching the specified regex")
     # positional arguments
     parser.add_argument(
