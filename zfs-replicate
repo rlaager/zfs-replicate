@@ -73,6 +73,13 @@ if not hasattr(subprocess, "check_output"):
         return output
     subprocess.check_output = _check_output
 
+ENCRYPTION_PROPERTIES = (
+    'encryption',
+    'keyformat',
+    'keylocation',
+    'pbkdf2iters',
+)
+
 def check_output_ssh(host, command, **kw):
     if host == "":
         return subprocess.check_output(command, **kw)
@@ -178,7 +185,25 @@ def replicate(
                 source_filesystem), file=sys.stderr)
         sys.exit(1)
 
-    if destination_encryption != "off":
+    if source_encryption != "off":
+        # Encryption is incompatible with embedded data.
+        # Encryption is incompaitble with sending properties.  We emulate
+        # this by manually setting the properties on the recv, but remove the
+        # encryption properties to use the destination's encryption
+        # parameters.
+        zfs_send_options = [x for x in zfs_send_options
+                            if x not in ['-e', '-p']]
+        source_options = check_output_ssh(
+            source_host,
+            ["zfs", "get", "-H", "-p", "all", source_filesystem],
+            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+        for line in source_options.split("\n"):
+            (_, prop, value, source) = line.split("\t")
+            if (source == 'local' and
+                    not (prop == 'canmount' and value == "on") and
+                    prop not in ENCRYPTION_PROPERTIES):
+                zfs_recv_options.extend(["-o", f"{prop}={value}"])
+    elif destination_encryption != "off":
         # Encryption is incompatible with embedded data.
         zfs_send_options = [x for x in zfs_send_options if x != '-e']
         # Use the destination's encryption parameters.  This may ONLY be
