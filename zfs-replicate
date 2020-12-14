@@ -218,10 +218,8 @@ def replicate(
             most_recent_common_snapshot = snapshot
             break
 
-    # pylint: disable=consider-using-in
-    while most_recent_common_snapshot != source_snapshots_filtered[0] and \
-        most_recent_common_snapshot != source_snapshots[0]:
-    # pylint: enable=consider-using-in
+    while most_recent_common_snapshot not in (
+            source_snapshots_filtered[0], source_snapshots[0]):
 
         # There is something to send...
 
