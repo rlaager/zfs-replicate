@@ -157,23 +157,20 @@ def replicate(
         source_encryption = "off"
 
     # Is the destination encrypted?
-    try:
-        destination_encryption = check_output_ssh(
-            destination_host,
-            ["zfs", "get", "-H", "-o", "value", "encryption",
-             destination_filesystem],
-            stderr=subprocess.STDOUT).decode(term_encoding).strip()
-    except subprocess.CalledProcessError:
+    destination_encryption = "off"
+    destination_filesystem_tmp = destination_filesystem
+    while '/' in destination_filesystem_tmp:
         try:
-            # If it does not exist, check the parent.
             destination_encryption = check_output_ssh(
                 destination_host,
                 ["zfs", "get", "-H", "-o", "value", "encryption",
-                 "/".join(destination_filesystem.split("/")[:-1])],
+                 destination_filesystem_tmp],
                 stderr=subprocess.STDOUT).decode(term_encoding).strip()
+            break
         except subprocess.CalledProcessError:
-            # The destination must not support encryption.
-            destination_encryption = "off"
+            # If it does not exist, check the parent.
+            destination_filesystem_tmp = "/".join(
+                destination_filesystem_tmp.split("/")[:-1])
 
     if source_encryption != "off" and destination_encryption == "off":
         print(
