@@ -446,8 +446,8 @@ def replicate(
             if verbose:
                 delete_command.append("-v")
             delete_command.append(
-                destination_filesystem + "@" + ",".join(list(
-                    snapshots_to_delete_chunk)))
+                destination_filesystem + "@" + ",".join(
+                    snapshots_to_delete_chunk))
 
             if verbose:
                 print(" ".join(delete_command), file=sys.stderr)
