@@ -187,7 +187,7 @@ def replicate(
 
     if source_encryption != "off":
         # Encryption is incompatible with embedded data.
-        # Encryption is incompaitble with sending properties.  We emulate
+        # Encryption is incompatible with sending properties.  We emulate
         # this by manually setting the properties on the recv, but remove the
         # encryption properties to use the destination's encryption
         # parameters.
