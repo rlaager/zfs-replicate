@@ -91,6 +91,51 @@ def chunks(items, n):
     for i in range(0, len(items), n):
         yield items[i:(i + n)]
 
+def transfer(
+        source_host, source_filesystem, destination_host,
+        destination_filesystem, send_command, recv_command, dry_run,
+        term_encoding, verbose):
+
+    if source_host:
+        send_command = "ssh {0} {1}".format(source_host, send_command)
+    if destination_host:
+        recv_command = "ssh {0} {1}".format(destination_host, recv_command)
+    send_recv_command = send_command + "| " + recv_command
+
+    if verbose:
+        print("")
+        print(send_recv_command, file=sys.stderr)
+
+    if dry_run:
+        # Only run the send command (which will be in its dry-run mode).
+        send_recv_command = send_command
+
+    # Run the actual replication.  If in verbose mode, pass through the
+    # output in real time.
+    process = subprocess.Popen(
+        send_recv_command, shell=True, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    share_failed = False
+    while True:
+        nextline = process.stdout.readline().decode(term_encoding)
+        if nextline == "" and process.poll() is not None:
+            break
+        if "share(1M) failed" in nextline:
+            share_failed = True
+        if verbose:
+            sys.stderr.write(nextline)
+            sys.stderr.flush()
+    output = process.communicate()[0].decode(term_encoding)
+    if verbose:
+        sys.stderr.write(output)
+        sys.stderr.flush()
+    if process.returncode != 0 and \
+       not share_failed and "share(1M) failed" not in output:
+        return "Failed to replicate {0}:{1} to {2}:{3}".format(
+            source_host, source_filesystem,
+            destination_host, destination_filesystem)
+    return None
+
 def replicate(
         source_host, source_filesystem, destination_host,
         destination_filesystem, delete, delete_excluded, dry_run, no_mount,
@@ -314,10 +359,7 @@ def replicate(
             # Send the first snapshot.
             next_snapshot = source_snapshots_filtered[-1]
 
-        send_command = ""
-        if source_host != "":
-            send_command = "ssh {0} ".format(source_host)
-        send_command += "zfs send " + " ".join(zfs_send_options) + " "
+        send_command = "zfs send " + " ".join(zfs_send_options) + " "
         if dry_run:
             send_command += "-n "
         if verbose:
@@ -331,47 +373,17 @@ def replicate(
             send_command += "-R "
         send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
 
-        recv_command = "{0}zfs recv {1}{2} {3}".format(
-            "ssh {0} ".format(destination_host)
-            if destination_host != "" else "",
+        recv_command = "zfs recv {0}{1} {2}".format(
             " ".join(zfs_recv_options),
             "" if most_recent_common_snapshot else
             " " + " ".join(zfs_initial_recv_options),
             destination_filesystem)
-        send_recv_command = send_command + " | " + recv_command
 
-        if verbose:
-            print("")
-            print(send_recv_command, file=sys.stderr)
-
-        if dry_run:
-            # Only run the send command (which will be in its dry-run mode).
-            send_recv_command = send_command
-
-        # Run the actual replication.  If in verbose mode, pass through the
-        # output in real time.
-        process = subprocess.Popen(
-            send_recv_command, shell=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT)
-        share_failed = False
-        while True:
-            nextline = process.stdout.readline().decode(term_encoding)
-            if nextline == "" and process.poll() is not None:
-                break
-            if "share(1M) failed" in nextline:
-                share_failed = True
-            if verbose:
-                sys.stderr.write(nextline)
-                sys.stderr.flush()
-        output = process.communicate()[0].decode(term_encoding)
-        if verbose:
-            sys.stderr.write(output)
-            sys.stderr.flush()
-        if process.returncode != 0 and \
-           not share_failed and "share(1M) failed" not in output:
-            error = "Failed to replicate {0}:{1} to {2}:{3}".format(
-                source_host, source_filesystem,
-                destination_host, destination_filesystem)
+        error = transfer(
+            source_host, source_filesystem, destination_host,
+            destination_filesystem, send_command, recv_command, dry_run,
+            term_encoding, verbose)
+        if error:
             return (False, successful_transfers, error)
 
         most_recent_common_snapshot = next_snapshot
