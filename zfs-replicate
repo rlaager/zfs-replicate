@@ -139,10 +139,48 @@ def transfer(
 def replicate(
         source_host, source_filesystem, destination_host,
         destination_filesystem, delete, delete_excluded, dry_run, no_mount,
-        snapshot_filter, term_encoding, verbose, zfs_send_options):
+        snapshot_filter, term_encoding, verbose, zfs_send_options,
+        zfs_recv_options):
 
     error = ""
     successful_transfers = 0
+
+    # Check for an interrupted send/recv.
+    if "-s" in zfs_recv_options:
+        if verbose:
+            print(
+                "Checking for interrupted receive on {0}".format(
+                    destination_filesystem),
+                file=sys.stderr)
+        try:
+            receive_resume_token = check_output_ssh(
+                destination_host,
+                ["zfs", "get", "-H", "-o", "value", "receive_resume_token",
+                 destination_filesystem],
+                stderr=subprocess.STDOUT).decode(term_encoding).strip()
+        except subprocess.CalledProcessError:
+            if verbose:
+                print(
+                    "Checking for receive_resume_token failed.  Dataset may "
+                    "not exist.")
+            receive_resume_token = "-"
+
+        if receive_resume_token != "-":
+            send_command = "zfs send -t {0} ".format(receive_resume_token)
+            if "-e" in zfs_send_options:
+                send_command += "-e "
+            if dry_run:
+                send_command += "-n "
+            if verbose:
+                send_command += "-v "
+            recv_command = "zfs recv -s {0}".format(destination_filesystem)
+            error = transfer(
+                source_host, source_filesystem, destination_host,
+                destination_filesystem, send_command, recv_command,
+                dry_run, term_encoding, verbose)
+            if error:
+                return (False, successful_transfers, error)
+            successful_transfers = successful_transfers + 1
 
     if verbose:
         print(
@@ -180,7 +218,7 @@ def replicate(
         return (True, successful_transfers, error)
 
     zfs_initial_recv_options = []
-    zfs_recv_options = ["-F"]
+    zfs_recv_options = zfs_recv_options.copy()
     if no_mount:
         zfs_recv_options.append("-u")
         # Convert canmount=on to canmount=noauto.  Using zfs recv -u is NOT
@@ -194,8 +232,6 @@ def replicate(
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
         if source_canmount == "on":
             zfs_recv_options.append("-o canmount=noauto")
-    if verbose:
-        zfs_recv_options.append("-v")
 
     # Is the source encrypted?
     try:
@@ -580,6 +616,25 @@ def main():
             elif verbose:
                 print("not supported.")
 
+    zfs_recv_options = ["-F"]
+    if verbose:
+        zfs_recv_options.append("-v")
+    if source_host != destination_host:
+        if verbose:
+            print("Checking for zfs recv -s on destination: ", end="")
+        try:
+            check_output_ssh(
+                destination_host, ["zfs", "recv", "-s"],
+                stderr=subprocess.STDOUT).decode(term_encoding)
+        except subprocess.CalledProcessError as e:
+            if "invalid option" not in e.output.decode(term_encoding):
+                # We did NOT get "invalid option", so the option is supported.
+                zfs_recv_options.append("-s")
+                if verbose:
+                    print("supported.")
+            elif verbose:
+                print("not supported.")
+
     if not recursive:
         source_filesystems = [source_dataset_root]
     else:
@@ -605,7 +660,8 @@ def main():
                 source_host, source_filesystem,
                 destination_host, destination_filesystem,
                 delete, delete_excluded, dry_run, no_mount,
-                snapshot_filter, term_encoding, verbose, zfs_send_options)
+                snapshot_filter, term_encoding, verbose, zfs_send_options,
+                zfs_recv_options)
             if success:
                 # We succeeded.
                 break
