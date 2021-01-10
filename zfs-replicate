@@ -91,6 +91,46 @@ def chunks(items, n):
     for i in range(0, len(items), n):
         yield items[i:(i + n)]
 
+def delete_snapshots(
+        source_host, source_snapshots_filtered, destination_host,
+        destination_filesystem, destination_snapshots, delete_excluded,
+        dry_run, snapshot_filter, term_encoding, verbose):
+
+    snapshots_to_delete = None
+    if delete_excluded:
+        snapshots_to_delete = \
+            set(destination_snapshots) - \
+            set(source_snapshots_filtered)
+    else:
+        destination_snapshots_filtered = [x for x in destination_snapshots
+                                          if snapshot_filter.match(x)]
+        snapshots_to_delete = \
+            set(destination_snapshots_filtered) - \
+            set(source_snapshots_filtered)
+    for snapshots_to_delete_chunk in chunks(snapshots_to_delete, 2000):
+        delete_command = ["zfs", "destroy"]
+        if dry_run:
+            delete_command.append("-n")
+        if verbose:
+            delete_command.append("-v")
+        delete_command.append(
+            destination_filesystem + "@" + ",".join(list(
+                snapshots_to_delete_chunk)))
+
+        if verbose:
+            print(" ".join(delete_command), file=sys.stderr)
+        try:
+            delete_command_output = check_output_ssh(
+                destination_host, delete_command,
+                stderr=subprocess.STDOUT).decode(term_encoding)
+            if verbose:
+                print(delete_command_output)
+        except subprocess.CalledProcessError as e:
+            delete_command_error = e.output.decode(term_encoding)
+            if "could not find any snapshots" not in delete_command_error:
+                print(delete_command_error)
+        return snapshots_to_delete
+
 def transfer(
         source_host, source_filesystem, destination_host,
         destination_filesystem, send_command, recv_command, dry_run,
@@ -138,9 +178,9 @@ def transfer(
 
 def replicate(
         source_host, source_filesystem, destination_host,
-        destination_filesystem, delete, delete_excluded, dry_run, no_mount,
-        snapshot_filter, term_encoding, verbose, zfs_send_options,
-        zfs_recv_options):
+        destination_filesystem, delete, delete_before, delete_excluded,
+        dry_run, no_mount, snapshot_filter, term_encoding, verbose,
+        zfs_send_options, zfs_recv_options):
 
     error = ""
     successful_transfers = 0
@@ -321,6 +361,26 @@ def replicate(
             most_recent_common_snapshot = snapshot
             break
 
+    # If we are doing delete_before, then we need to do manual deletions even
+    # if there is no snapshot filter.
+    if delete and delete_before:
+        # Do not delete the most recent common snapshot now, as we need it for
+        # incremental sends.
+        source_snapshots_filtered_tmp = source_snapshots_filtered
+        if most_recent_common_snapshot not in source_snapshots_filtered:
+            source_snapshots_filtered_tmp = \
+                    source_snapshots_filtered + most_recent_common_snapshot
+
+        snapshots_deleted = delete_snapshots(
+            source_host, source_snapshots_filtered_tmp, destination_host,
+            destination_filesystem, destination_snapshots, delete_excluded,
+            dry_run, snapshot_filter, term_encoding, verbose)
+
+        # Remove the deleted snapshots so they are not considered further
+        # (e.g. by the deletion code at the end).
+        destination_snapshots = \
+            [x for x in destination_snapshots if x not in snapshots_deleted]
+
     while most_recent_common_snapshot not in (
             source_snapshots_filtered[0], source_snapshots[0]):
 
@@ -428,39 +488,10 @@ def replicate(
     # If there was a snapshot filter, we could not send a replication stream
     # package, so we have to handle deletions ourselves.
     if snapshot_filter and delete:
-        snapshots_to_delete = None
-        if delete_excluded:
-            snapshots_to_delete = \
-                set(destination_snapshots) - \
-                set(source_snapshots_filtered)
-        else:
-            destination_snapshots_filtered = [x for x in destination_snapshots
-                                              if snapshot_filter.match(x)]
-            snapshots_to_delete = \
-                set(destination_snapshots_filtered) - \
-                set(source_snapshots_filtered)
-        for snapshots_to_delete_chunk in chunks(snapshots_to_delete, 2000):
-            delete_command = ["zfs", "destroy"]
-            if dry_run:
-                delete_command.append("-n")
-            if verbose:
-                delete_command.append("-v")
-            delete_command.append(
-                destination_filesystem + "@" + ",".join(
-                    snapshots_to_delete_chunk))
-
-            if verbose:
-                print(" ".join(delete_command), file=sys.stderr)
-            try:
-                delete_command_output = check_output_ssh(
-                    destination_host, delete_command,
-                    stderr=subprocess.STDOUT).decode(term_encoding)
-                if verbose:
-                    print(delete_command_output)
-            except subprocess.CalledProcessError as e:
-                delete_command_error = e.output.decode(term_encoding)
-                if "could not find any snapshots" not in delete_command_error:
-                    print(delete_command_error)
+        delete_snapshots(
+            source_host, source_snapshots_filtered, destination_host,
+            destination_filesystem, destination_snapshots, delete_excluded,
+            dry_run, snapshot_filter, term_encoding, verbose)
 
     return (True, successful_transfers, error)
 
@@ -476,6 +507,9 @@ def main():
         "--delete", action="store_true",
         help="delete snapshots on the destination that do not exist on the "
              "source")
+    parser.add_argument(
+        "--delete-before", action="store_true",
+        help="delete snapshots before sending new snapshots rather than after")
     parser.add_argument(
         "--delete-excluded", action="store_true",
         help="delete snapshots on the destination excluded by the filter")
@@ -536,6 +570,7 @@ def main():
             "destination must be of the form host:dataset or host:path")
 
     delete = args.delete
+    delete_before = args.delete_before
     delete_excluded = args.delete_excluded
     dry_run = args.dry_run
     no_mount = args.no_mount
@@ -659,7 +694,7 @@ def main():
             (success, successful_transfers, error) = replicate(
                 source_host, source_filesystem,
                 destination_host, destination_filesystem,
-                delete, delete_excluded, dry_run, no_mount,
+                delete, delete_before, delete_excluded, dry_run, no_mount,
                 snapshot_filter, term_encoding, verbose, zfs_send_options,
                 zfs_recv_options)
             if success:
