@@ -258,7 +258,8 @@ def replicate(
         return (True, successful_transfers, error)
 
     zfs_initial_recv_options = []
-    zfs_recv_options = zfs_recv_options.copy()
+    # Make a copy of the list so we can modify it temporarily.
+    zfs_recv_options = list(zfs_recv_options)
     if no_mount:
         zfs_recv_options.append("-u")
         # Convert canmount=on to canmount=noauto.  Using zfs recv -u is NOT
