@@ -129,7 +129,7 @@ def delete_snapshots(
             delete_command_error = e.output.decode(term_encoding)
             if "could not find any snapshots" not in delete_command_error:
                 print(delete_command_error)
-        return snapshots_to_delete
+    return snapshots_to_delete
 
 def transfer(
         source_host, source_filesystem, destination_host,
