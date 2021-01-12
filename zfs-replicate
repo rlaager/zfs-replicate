@@ -370,7 +370,7 @@ def replicate(
         source_snapshots_filtered_tmp = source_snapshots_filtered
         if most_recent_common_snapshot not in source_snapshots_filtered:
             source_snapshots_filtered_tmp = \
-                    source_snapshots_filtered + most_recent_common_snapshot
+                source_snapshots_filtered + most_recent_common_snapshot
 
         snapshots_deleted = delete_snapshots(
             source_snapshots_filtered_tmp, destination_host,
