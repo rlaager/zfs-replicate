@@ -364,7 +364,7 @@ def replicate(
 
     # If we are doing delete_before, then we need to do manual deletions even
     # if there is no snapshot filter.
-    if delete and delete_before:
+    if most_recent_common_snapshot and delete and delete_before:
         # Do not delete the most recent common snapshot now, as we need it for
         # incremental sends.
         source_snapshots_filtered_tmp = source_snapshots_filtered
