@@ -490,7 +490,7 @@ def replicate(
     # package, so we have to handle deletions ourselves.
     if snapshot_filter and delete:
         delete_snapshots(
-            source_snapshots_filtered, destination_hosto,
+            source_snapshots_filtered, destination_host,
             destination_filesystem, destination_snapshots, delete_excluded,
             dry_run, snapshot_filter, term_encoding, verbose)
 
