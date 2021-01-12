@@ -206,21 +206,30 @@ def replicate(
             receive_resume_token = "-"
 
         if receive_resume_token != "-":
-            send_command = "zfs send -t {0} ".format(receive_resume_token)
-            if "-e" in zfs_send_options:
-                send_command += "-e "
-            if dry_run:
-                send_command += "-n "
-            if verbose:
-                send_command += "-v "
-            recv_command = "zfs recv -s {0}".format(destination_filesystem)
-            error = transfer(
-                source_host, source_filesystem, destination_host,
-                destination_filesystem, send_command, recv_command,
-                dry_run, term_encoding, verbose)
-            if error:
-                return (False, successful_transfers, error)
-            successful_transfers = successful_transfers + 1
+            if '-t' in zfs_send_options:
+                send_command = "zfs send -t {0} ".format(receive_resume_token)
+                if "-e" in zfs_send_options:
+                    send_command += "-e "
+                if dry_run:
+                    send_command += "-n "
+                if verbose:
+                    send_command += "-v "
+                recv_command = "zfs recv -s {0}".format(
+                    destination_filesystem)
+                error = transfer(
+                    source_host, source_filesystem, destination_host,
+                    destination_filesystem, send_command, recv_command,
+                    dry_run, term_encoding, verbose)
+                if error:
+                    return (False, successful_transfers, error)
+                successful_transfers = successful_transfers + 1
+            else:
+                # The sender does not support resuming.
+                if verbose:
+                    print ("Aborting interrupted receive.")
+                if not dry_run:
+                    check_output_ssh(destination_host,
+                        ["zfs", "recv", "-A", destination_filesystem])
 
     if verbose:
         print(
@@ -260,6 +269,8 @@ def replicate(
     zfs_initial_recv_options = []
     # Make a copy of the list so we can modify it temporarily.
     zfs_recv_options = list(zfs_recv_options)
+    if '-t' not in zfs_send_options:
+        zfs_recv_options.remove('-s')
     if no_mount:
         zfs_recv_options.append("-u")
         # Convert canmount=on to canmount=noauto.  Using zfs recv -u is NOT
@@ -456,7 +467,8 @@ def replicate(
             # Send the first snapshot.
             next_snapshot = source_snapshots_filtered[-1]
 
-        send_command = "zfs send " + " ".join(zfs_send_options) + " "
+        send_command = "zfs send " + " ".join(
+            [x for x in zfs_send_options if x != '-t']) + " "
         if dry_run:
             send_command += "-n "
         if verbose:
@@ -615,7 +627,7 @@ def main():
         parser.error("source and destination must be different")
 
     zfs_send_options = ["-p"]
-    for option in ["-c", "-e", "-L"]:
+    for option in ["-c", "-e", "-L", "-t"]:
         if source_host != destination_host:
             if verbose:
                 print(
