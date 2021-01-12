@@ -92,9 +92,9 @@ def chunks(items, n):
         yield items[i:(i + n)]
 
 def delete_snapshots(
-        source_host, source_snapshots_filtered, destination_host,
-        destination_filesystem, destination_snapshots, delete_excluded,
-        dry_run, snapshot_filter, term_encoding, verbose):
+        source_snapshots_filtered, destination_host, destination_filesystem,
+        destination_snapshots, delete_excluded, dry_run, snapshot_filter,
+        term_encoding, verbose):
 
     snapshots_to_delete = None
     if delete_excluded:
@@ -373,7 +373,7 @@ def replicate(
                     source_snapshots_filtered + most_recent_common_snapshot
 
         snapshots_deleted = delete_snapshots(
-            source_host, source_snapshots_filtered_tmp, destination_host,
+            source_snapshots_filtered_tmp, destination_host,
             destination_filesystem, destination_snapshots, delete_excluded,
             dry_run, snapshot_filter, term_encoding, verbose)
 
@@ -490,7 +490,7 @@ def replicate(
     # package, so we have to handle deletions ourselves.
     if snapshot_filter and delete:
         delete_snapshots(
-            source_host, source_snapshots_filtered, destination_host,
+            source_snapshots_filtered, destination_hosto,
             destination_filesystem, destination_snapshots, delete_excluded,
             dry_run, snapshot_filter, term_encoding, verbose)
 
