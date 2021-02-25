@@ -226,9 +226,10 @@ def replicate(
             else:
                 # The sender does not support resuming.
                 if verbose:
-                    print ("Aborting interrupted receive.")
+                    print("Aborting interrupted receive.")
                 if not dry_run:
-                    check_output_ssh(destination_host,
+                    check_output_ssh(
+                        destination_host,
                         ["zfs", "recv", "-A", destination_filesystem])
 
     if verbose:
