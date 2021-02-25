@@ -541,6 +541,12 @@ def main():
         "-u", "--no-mount", action="store_true",
         help="do not mount the received filesystems on the destination")
     parser.add_argument(
+        "-o", action="append",
+        help="set property on receive side")
+    parser.add_argument(
+        "-x", action="append",
+        help="exclude property on receive side")
+    parser.add_argument(
         "--snapshot-filter",
         help="consider only snapshots matching the specified regex")
     # positional arguments
@@ -666,6 +672,14 @@ def main():
                 print("not supported.")
 
     zfs_recv_options = ["-F"]
+    if args.o:
+        for prop in args.o:
+            zfs_recv_options.append("-o")
+            zfs_recv_options.append(prop)
+    if args.x:
+        for prop in args.x:
+            zfs_recv_options.append("-x")
+            zfs_recv_options.append(prop)
     if verbose:
         zfs_recv_options.append("-v")
     if source_host != destination_host:
