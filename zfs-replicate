@@ -94,10 +94,10 @@ def transfer(
         term_encoding, verbose):
 
     if source_host:
-        send_command = "ssh {0} {1}".format(source_host, send_command)
+        send_command = f"ssh {source_host} {send_command}"
     if destination_host:
-        recv_command = "ssh {0} {1}".format(destination_host, recv_command)
-    send_recv_command = send_command + "| " + recv_command
+        recv_command = f"ssh {destination_host} {recv_command}"
+    send_recv_command = f"{send_command}| {recv_command}"
 
     if verbose:
         print("")
@@ -128,9 +128,9 @@ def transfer(
         sys.stderr.flush()
     if process.returncode != 0 and \
        not share_failed and "share(1M) failed" not in output:
-        return "Failed to replicate {0}:{1} to {2}:{3}".format(
-            source_host, source_filesystem,
-            destination_host, destination_filesystem)
+        return (
+            f"Failed to replicate {source_host}:{source_filesystem} to "
+            f"{destination_host}:{destination_filesystem}")
     return None
 
 def replicate(
@@ -146,9 +146,8 @@ def replicate(
     if "-s" in zfs_recv_options:
         if verbose:
             print(
-                "Checking for interrupted receive on {0}".format(
-                    destination_filesystem),
-                file=sys.stderr)
+                "Checking for interrupted receive on "
+                f"{destination_filesystem}", file=sys.stderr)
         try:
             receive_resume_token = check_output_ssh(
                 destination_host,
@@ -164,15 +163,14 @@ def replicate(
 
         if receive_resume_token != "-":
             if '-t' in zfs_send_options:
-                send_command = "zfs send -t {0} ".format(receive_resume_token)
+                send_command = f"zfs send -t {receive_resume_token} "
                 if "-e" in zfs_send_options:
                     send_command += "-e "
                 if dry_run:
                     send_command += "-n "
                 if verbose:
                     send_command += "-v "
-                recv_command = "zfs recv -s {0}".format(
-                    destination_filesystem)
+                recv_command = f"zfs recv -s {destination_filesystem}"
                 error = transfer(
                     source_host, source_filesystem, destination_host,
                     destination_filesystem, send_command, recv_command,
@@ -191,8 +189,7 @@ def replicate(
 
     if verbose:
         print(
-            "Comparing {0} -> {1}".format(
-                source_filesystem, destination_filesystem),
+            f"Comparing {source_filesystem} -> {destination_filesystem}",
             file=sys.stderr)
 
     # Get a list of source snapshots.
@@ -220,8 +217,9 @@ def replicate(
 
     if not source_snapshots_filtered:
         if verbose:
-            print("Skipping {0} as it has no snapshots.".format(
-                source_filesystem), file=sys.stderr)
+            print(
+                f"Skipping {source_filesystem} as it has no snapshots.",
+                file=sys.stderr)
         return (True, successful_transfers, error)
 
     zfs_initial_recv_options = []
@@ -272,8 +270,8 @@ def replicate(
 
     if source_encryption != "off" and destination_encryption == "off":
         print(
-            "{0} is encrypted, but the destination is not.".format(
-                source_filesystem), file=sys.stderr)
+            f"{source_filesystem} is encrypted, but the destination is not.",
+            file=sys.stderr)
         sys.exit(1)
 
     if source_encryption != "off":
@@ -293,7 +291,7 @@ def replicate(
             if (source == 'local' and
                     not (prop == 'canmount' and value == "on") and
                     prop not in ENCRYPTION_PROPERTIES):
-                zfs_recv_options.extend(["-o", "{0}={1}".format(prop, value)])
+                zfs_recv_options.extend(["-o", f"{prop}={value}"])
     elif destination_encryption != "off":
         # Encryption is incompatible with embedded data.
         zfs_send_options = [x for x in zfs_send_options if x != '-e']
@@ -383,20 +381,19 @@ def replicate(
 
             if destination_snapshots and not delete:
                 print(
-                    "{0} has no snapshots in common with the source, so "
-                    "--delete must be specified to allow its snapshots to "
-                    "be destroyed.".format(
-                        destination_filesystem), file=sys.stderr)
+                    f"{destination_filesystem} has no snapshots in common "
+                    "with the source, so --delete must be specified to allow "
+                    "its snapshots to be destroyed.", file=sys.stderr)
                 sys.exit(1)
             if snapshot_filter and not delete_excluded:
                 for snapshot in destination_snapshots:
                     if not snapshot_filter.match(snapshot):
                         print(
-                            "{0} has no snapshots in common with the "
-                            "source, and has excluded snapshots, so "
-                            "--delete-excluded must be specified to allow "
-                            "its snapshots to be destroyed.".format(
-                                destination_filesystem), file=sys.stderr)
+                            f"{destination_filesystem} has no snapshots in "
+                            "common with the source, and has excluded "
+                            "snapshots, so --delete-excluded must be "
+                            "specified to allow its snapshots to be "
+                            "destroyed.", file=sys.stderr)
                         sys.exit(1)
 
             destroy_command = ["zfs", "destroy", "-r"]
@@ -433,18 +430,22 @@ def replicate(
             send_command += "-v "
         if most_recent_common_snapshot:
             # There is a common snapshot, so send an incremental.
-            send_command += "-{0} {1}@{2} ".format(
-                "i" if snapshot_filter else "I",
-                source_filesystem, most_recent_common_snapshot)
+            send_command += (
+                f"-{'i' if snapshot_filter else 'I'} "
+                f"{source_filesystem}@{most_recent_common_snapshot} ")
         if (not snapshot_filter) and delete:
             send_command += "-R "
-        send_command += "{0}@{1}".format(source_filesystem, next_snapshot)
+        send_command += f"{source_filesystem}@{next_snapshot}"
 
-        recv_command = "zfs recv {0}{1} {2}".format(
-            " ".join(zfs_recv_options),
-            "" if most_recent_common_snapshot else
-            " " + " ".join(zfs_initial_recv_options),
-            destination_filesystem)
+        if most_recent_common_snapshot:
+            recv_command = (
+                f"zfs recv {' '.join(zfs_recv_options)} "
+                f"{destination_filesystem}")
+        else:
+            recv_command = (
+                f"zfs recv {' '.join(zfs_recv_options)} "
+                f"{' '.join(zfs_initial_recv_options)} "
+                f"{destination_filesystem}")
 
         error = transfer(
             source_host, source_filesystem, destination_host,
@@ -561,8 +562,9 @@ def main():
                 ["zfs", "list", "-H", "-o", "name", "-s", "name",
                  source_dataset_root])
         except subprocess.CalledProcessError:
-            print("No ZFS dataset exists at {0}:{1}.".format(
-                source_host, source_dataset_root), file=sys.stderr)
+            print(
+                "No ZFS dataset exists at "
+                f"{source_host}:{source_dataset_root}.", file=sys.stderr)
             sys.exit(1)
         source_dataset_root = source_dataset_root.decode(term_encoding).strip()
 
@@ -575,8 +577,8 @@ def main():
                  destination_dataset_root])
         except subprocess.CalledProcessError:
             print(
-                "Please create a ZFS dataset at {0}:{1}.".format(
-                    destination_host, destination_dataset_root),
+                "Please create a ZFS dataset at "
+                f"{destination_host}:{destination_dataset_root}.",
                 file=sys.stderr)
             sys.exit(1)
         destination_dataset_root = destination_dataset_root.decode(
@@ -589,9 +591,7 @@ def main():
     for option in ["-c", "-e", "-L", "-t"]:
         if source_host != destination_host:
             if verbose:
-                print(
-                    "Checking for zfs send {0} on source: ".format(option),
-                    end="")
+                print(f"Checking for zfs send {option} on source: ", end="")
             try:
                 check_output_ssh(
                     source_host, ["zfs", "send", option],
@@ -607,9 +607,7 @@ def main():
                 print("supported.")
 
         if verbose:
-            print(
-                "Checking for zfs send {0} on destination: ".format(option),
-                end="")
+            print("Checking for zfs send {option} on destination: ", end="")
         try:
             check_output_ssh(
                 destination_host, ["zfs", "send", option],
