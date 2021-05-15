@@ -25,53 +25,10 @@
 # pylint: disable=too-many-locals
 # pylint: disable=too-many-statements
 
-# Compatibility code for Python 2:
-from __future__ import print_function
-
-# Compatibility code for Python 2.6:
-try:
-    import argparse
-    use_argparse = True
-except ImportError:
-    # pylint: disable=deprecated-module
-    import optparse as argparse
-    # pylint: enable=deprecated-module
-
-    class _ArgumentParser(argparse.OptionParser):
-        def add_argument(self, *args, **kw):
-            if args[0][0] != '-':
-                # optparse handles positional arguments differently.
-                return
-            argparse.OptionParser.add_option(self, *args, **kw)
-    argparse.ArgumentParser = _ArgumentParser
-    use_argparse = False
-
+import argparse
 import re
 import subprocess
 import sys
-
-# Compatibility code for Python 2.6:
-if not hasattr(subprocess, "check_output"):
-    def _check_output(*popenargs, **kwargs):
-        r"""Run command with arguments and return its output as a byte string.
-        Backported from Python 2.7 as it's implemented as pure python on
-        stdlib.
-        >>> check_output(['/usr/bin/python', '--version'])
-        Python 2.6.2
-        """
-        process = subprocess.Popen(
-            stdout=subprocess.PIPE, *popenargs, **kwargs)
-        output, unused_err = process.communicate()
-        retcode = process.poll()
-        if retcode:
-            cmd = kwargs.get("args")
-            if cmd is None:
-                cmd = popenargs[0]
-            error = subprocess.CalledProcessError(retcode, cmd)
-            error.output = output
-            raise error
-        return output
-    subprocess.check_output = _check_output
 
 ENCRYPTION_PROPERTIES = (
     'encryption',
@@ -559,15 +516,9 @@ def main():
         help="the source dataset or filesystem path to replicate to, with "
              "optional SSH user@host:")
 
-    if use_argparse:
-        args = parser.parse_args()
-        source = args.source[0].split(":")
-        destination = args.destination[0].split(":")
-    else:
-        (args, positional_args) = parser.parse_args()
-        source = positional_args[0].split(":")
-        destination = positional_args[1].split(":")
+    args = parser.parse_args()
 
+    source = args.source[0].split(":")
     source_len = len(source)
     if source_len == 1:
         source_host = ""
@@ -578,6 +529,7 @@ def main():
     else:
         parser.error("source must be of the form host:dataset or host:path")
 
+    destination = args.destination[0].split(":")
     destination_len = len(destination)
     if destination_len == 1:
         destination_host = ""
