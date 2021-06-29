@@ -531,7 +531,7 @@ def main():
         source_host = source[0]
         source_dataset_root = source[1]
     else:
-        parser.error("source must be of the form host:dataset or host:path")
+        parser.error("source must be of the form [host:]dataset or [host:]path")
 
     destination = args.destination[0].split(":")
     destination_len = len(destination)
