@@ -610,7 +610,7 @@ def main():
                 print("supported.")
 
         if verbose:
-            print("Checking for zfs send {option} on destination: ", end="")
+            print(f"Checking for zfs send {option} on destination: ", end="")
         try:
             check_output_ssh(
                 destination_host, ["zfs", "send", option],
