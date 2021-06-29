@@ -255,7 +255,7 @@ def replicate(
     # Is the destination encrypted?
     destination_encryption = "off"
     destination_filesystem_tmp = destination_filesystem
-    while '/' in destination_filesystem_tmp:
+    while True:
         try:
             destination_encryption = check_output_ssh(
                 destination_host,
@@ -265,8 +265,11 @@ def replicate(
             break
         except subprocess.CalledProcessError:
             # If it does not exist, check the parent.
-            destination_filesystem_tmp = "/".join(
+            parent = "/".join(
                 destination_filesystem_tmp.split("/")[:-1])
+            if parent == destination_filesystem_tmp.split:
+                break
+            destination_filesystem_tmp = parent
 
     if source_encryption != "off" and destination_encryption == "off":
         print(
