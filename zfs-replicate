@@ -112,11 +112,14 @@ def transfer(
     process = subprocess.Popen(
         send_recv_command, shell=True, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT)
+    resume_failed = False
     share_failed = False
     while True:
         nextline = process.stdout.readline().decode(term_encoding)
         if nextline == "" and process.poll() is not None:
             break
+        if nextline.startswith("cannot resume send:"):
+            resume_failed = True
         if "share(1M) failed" in nextline:
             share_failed = True
         if verbose:
@@ -126,6 +129,8 @@ def transfer(
     if verbose:
         sys.stderr.write(output)
         sys.stderr.flush()
+    if resume_failed:
+        return "Resume failed"
     if process.returncode != 0 and \
        not share_failed and "share(1M) failed" not in output:
         return (
@@ -162,6 +167,7 @@ def replicate(
             receive_resume_token = "-"
 
         if receive_resume_token != "-":
+            abort = False
             if '-t' in zfs_send_options:
                 send_command = f"zfs send -t {receive_resume_token} "
                 if "-e" in zfs_send_options:
@@ -175,11 +181,16 @@ def replicate(
                     source_host, source_filesystem, destination_host,
                     destination_filesystem, send_command, recv_command,
                     dry_run, term_encoding, verbose)
-                if error:
+                if error == "Resume failed":
+                    abort = True
+                elif error:
                     return (False, successful_transfers, error)
-                successful_transfers = successful_transfers + 1
+                else:
+                    successful_transfers = successful_transfers + 1
             else:
                 # The sender does not support resuming.
+                abort = True
+            if abort:
                 if verbose:
                     print("Aborting interrupted receive.")
                 if not dry_run:
