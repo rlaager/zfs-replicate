@@ -118,7 +118,8 @@ def transfer(
         nextline = process.stdout.readline().decode(term_encoding)
         if nextline == "" and process.poll() is not None:
             break
-        if nextline.startswith("cannot resume send:"):
+        if (nextline.startswith("cannot resume send:")
+                or nextline.startswith("cannot receive resume stream:")):
             resume_failed = True
         if "share(1M) failed" in nextline:
             share_failed = True
