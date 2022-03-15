@@ -26,6 +26,7 @@
 # pylint: disable=too-many-statements
 
 import argparse
+from contextlib import suppress
 import re
 import subprocess
 import sys
@@ -213,12 +214,10 @@ def replicate(
     # Put the source snapshots in a nice list, without the dataset name.
     source_snapshots = []
     for line in source_zfs_list.split("\n"):
-        try:
+        with suppress(ValueError):
             (fs, snapshot) = line.split("@")
             if fs == source_filesystem:
                 source_snapshots.append(snapshot)
-        except ValueError:
-            pass
     # Put the list in newest to oldest order.
     source_snapshots.reverse()
 
