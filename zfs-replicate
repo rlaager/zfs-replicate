@@ -314,6 +314,8 @@ def replicate(
             if (source == 'local' and
                     not (prop == 'canmount' and value == "on") and
                     prop not in ENCRYPTION_PROPERTIES):
+                if prop == 'acltype' and value == 'posix':
+                    value = 'posixacl'
                 zfs_recv_options.extend(["-o", f"{prop}={value}"])
     elif destination_encryption != "off":
         # Encryption is incompatible with embedded data.
