@@ -95,24 +95,33 @@ def transfer(
         term_encoding, verbose):
 
     if source_host:
-        send_command = f"ssh {source_host} {send_command}"
+        send_command = ["ssh", source_host] + send_command
     if destination_host:
-        recv_command = f"ssh {destination_host} {recv_command}"
-    send_recv_command = f"{send_command}| {recv_command}"
+        recv_command = ["ssh", destination_host] + recv_command
 
     if verbose:
         print("")
-        print(send_recv_command, file=sys.stderr)
+        print(
+            f"{' '.join(send_command)} | {' '.join(recv_command)}",
+            file=sys.stderr)
 
+    # pylint: disable=consider-using-with
     if dry_run:
         # Only run the send command (which will be in its dry-run mode).
-        send_recv_command = send_command
-
-    # Run the actual replication.  If in verbose mode, pass through the
-    # output in real time.
-    process = subprocess.Popen(
-        send_recv_command, shell=True, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT)
+        process = subprocess.Popen(
+            send_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            close_fds=True)
+    else:
+        # Run the actual replication.
+        send_process = subprocess.Popen(
+            send_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            close_fds=True)
+        process = subprocess.Popen(
+            recv_command, stdin=send_process.stdout, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, close_fds=True)
+        # Allow send_process to receive a SIGPIPE if process exits.
+        send_process.stdout.close()
+    # pylint: enable=consider-using-with
     resume_failed = False
     share_failed = False
     while True:
@@ -171,14 +180,14 @@ def replicate(
         if receive_resume_token != "-":
             abort = False
             if '-t' in zfs_send_options:
-                send_command = f"zfs send -t {receive_resume_token} "
+                send_command = ["zfs", "send", "-t", receive_resume_token]
                 if "-e" in zfs_send_options:
-                    send_command += "-e "
+                    send_command.append("-e")
                 if dry_run:
-                    send_command += "-n "
+                    send_command.append("-n")
                 if verbose:
-                    send_command += "-v "
-                recv_command = f"zfs recv -s {destination_filesystem}"
+                    send_command.append("-v")
+                recv_command = ["zfs", "recv", "-s", destination_filesystem]
                 error = transfer(
                     source_host, source_filesystem, destination_host,
                     destination_filesystem, send_command, recv_command,
@@ -436,30 +445,28 @@ def replicate(
             # Send the first snapshot.
             next_snapshot = source_snapshots_filtered[-1]
 
-        send_command = "zfs send " + " ".join(
-            [x for x in zfs_send_options if x != '-t']) + " "
+        send_command = ["zfs", "send"]
+        send_command.extend(x for x in zfs_send_options if x != '-t')
         if dry_run:
-            send_command += "-n "
+            send_command.append("-n")
         if verbose:
-            send_command += "-v "
+            send_command.append("-v")
         if most_recent_common_snapshot:
             # There is a common snapshot, so send an incremental.
-            send_command += (
-                f"-{'i' if snapshot_filter else 'I'} "
-                f"{source_filesystem}@{most_recent_common_snapshot} ")
+            if snapshot_filter:
+                send_command.append("-i")
+            else:
+                send_command.append("-I")
+            send_command.append(
+                f"{source_filesystem}@{most_recent_common_snapshot}")
         if (not snapshot_filter) and delete:
-            send_command += "-R "
-        send_command += f"{source_filesystem}@{next_snapshot}"
+            send_command.append("-R")
+        send_command.append(f"{source_filesystem}@{next_snapshot}")
 
-        if most_recent_common_snapshot:
-            recv_command = (
-                f"zfs recv {' '.join(zfs_recv_options)} "
-                f"{destination_filesystem}")
-        else:
-            recv_command = (
-                f"zfs recv {' '.join(zfs_recv_options)} "
-                f"{' '.join(zfs_initial_recv_options)} "
-                f"{destination_filesystem}")
+        recv_command = ["zfs", "recv"] + zfs_recv_options
+        if not most_recent_common_snapshot:
+            recv_command.extend(zfs_initial_recv_options)
+        recv_command.append(destination_filesystem)
 
         error = transfer(
             source_host, source_filesystem, destination_host,
