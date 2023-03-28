@@ -259,7 +259,7 @@ def replicate(
              source_filesystem],
             stderr=subprocess.STDOUT).decode(term_encoding).strip()
         if source_canmount == "on":
-            zfs_recv_options.append("-o canmount=noauto")
+            zfs_recv_options.extend(["-o", "canmount=noauto"])
 
     # Is the source encrypted?
     try:
