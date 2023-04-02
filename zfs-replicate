@@ -38,6 +38,17 @@ ENCRYPTION_PROPERTIES = (
     'pbkdf2iters',
 )
 
+def check_feature(options, feature, verbose):
+    value = options.get(f'feature@{feature}', '')
+    if value not in ('enabled', 'active'):
+        if verbose:
+            if value == '':
+                print(f"{feature} feature not available.")
+            else:
+                print(f"{feature} feature not enabled.")
+        return False
+    return True
+
 def check_output_ssh(host, command, **kw):
     if host == "":
         return subprocess.check_output(command, **kw)
@@ -88,6 +99,22 @@ def delete_snapshots(
             if "could not find any snapshots" not in delete_command_error:
                 print(delete_command_error)
     return snapshots_to_delete
+
+def get_pool_options(host, pool, term_encoding, verbose):
+    if verbose:
+        print(f"Getting pool options...")
+    output = check_output_ssh(
+        host, ["zpool", "get", "-Hp", "all", pool],
+        stderr=subprocess.STDOUT).decode(term_encoding)
+    options = {}
+    for line in output.split('\n'):
+        if not line:
+            continue
+        (name, prop, value, source) = line.split('\t')
+        if value == '-':
+            value = None
+        options[prop] = value
+    return options
 
 def transfer(
         source_host, source_filesystem, destination_host,
@@ -660,6 +687,14 @@ def main():
 
         if verbose:
             print(f"Checking for zfs send {option} on destination: ", end="")
+        if option == '-e':
+            if not (check_feature(
+                    destination_pool_options, 'embedded_data', verbose)):
+                continue
+        elif option == '-L':
+            if not (check_feature(
+                    destination_pool_options, 'large_blocks', verbose)):
+                continue
         try:
             check_output_ssh(
                 destination_host, ["zfs", "send", option],
