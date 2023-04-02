@@ -611,8 +611,36 @@ def main():
     if source_dataset_root == destination_dataset_root:
         parser.error("source and destination must be different")
 
+    zfs_send_options_to_check = ["-c", "-e", "-L", "-t"]
+
+    # TODO: A more comprehensive solution would determine the source and
+    # TODO: destination compression algorithms (after applying -o or -x
+    # TODO: options) and then only remove -c if they differ.  This would
+    # TODO: allow for specifying -o or -x that only, in practice, affects
+    # TODO: some sends (e.g. in a recursive tree) and still get -c where
+    # TODO: possible.
+    zfs_recv_options = ["-F"]
+    if args.o:
+        for prop in args.o:
+            zfs_recv_options.append("-o")
+            zfs_recv_options.append(prop)
+            if prop.startswith("compression=") or prop.startswith("compress="):
+                zfs_send_options_to_check.remove("-c")
+    if args.x:
+        for prop in args.x:
+            zfs_recv_options.append("-x")
+            zfs_recv_options.append(prop)
+            if prop in ("compression", "compress"):
+                zfs_send_options_to_check.remove("-c")
+    if verbose:
+        zfs_recv_options.append("-v")
+
+    destination_pool_options = get_pool_options(
+        destination_host, destination_dataset_root.split('/')[0],
+        term_encoding, verbose)
+
     zfs_send_options = ["-p"]
-    for option in ["-c", "-e", "-L", "-t"]:
+    for option in zfs_send_options_to_check:
         if source_host != destination_host:
             if verbose:
                 print(f"Checking for zfs send {option} on source: ", end="")
@@ -645,17 +673,6 @@ def main():
             elif verbose:
                 print("not supported.")
 
-    zfs_recv_options = ["-F"]
-    if args.o:
-        for prop in args.o:
-            zfs_recv_options.append("-o")
-            zfs_recv_options.append(prop)
-    if args.x:
-        for prop in args.x:
-            zfs_recv_options.append("-x")
-            zfs_recv_options.append(prop)
-    if verbose:
-        zfs_recv_options.append("-v")
     if source_host != destination_host:
         if verbose:
             print("Checking for zfs recv -s on destination: ", end="")
