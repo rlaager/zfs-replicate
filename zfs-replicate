@@ -236,7 +236,13 @@ def replicate(
                         destination_host,
                         ["zfs", "recv", "-A", destination_filesystem])
 
-    replication_stream = (delete and recursive and (not snapshot_filter))
+    # We only do a replication stream package if we have support for the -s
+    # option.  Otherwise, if we are trying to a recursive send of a dataset
+    # tree where snapshots are not always in sync at each level, -R without
+    # -s will fail.
+    replication_stream = (
+        delete and recursive and (not snapshot_filter)
+        and ("-s" in zfs_send_options))
 
     if verbose:
         print(
@@ -492,6 +498,8 @@ def replicate(
                 f"{source_filesystem}@{most_recent_common_snapshot}")
         if replication_stream:
             send_command.append("-R")
+        else:
+            send_command = [x for x in send_command if x != '-s']
         send_command.append(f"{source_filesystem}@{next_snapshot}")
 
         recv_command = ["zfs", "recv"] + zfs_recv_options
@@ -640,7 +648,7 @@ def main():
     if source_dataset_root == destination_dataset_root:
         parser.error("source and destination must be different")
 
-    zfs_send_options_to_check = ["-c", "-e", "-L", "-t"]
+    zfs_send_options_to_check = ["-c", "-e", "-L", "-s", "-t"]
 
     # TODO: A more comprehensive solution would determine the source and
     # TODO: destination compression algorithms (after applying -o or -x
