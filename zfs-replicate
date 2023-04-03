@@ -179,7 +179,7 @@ def transfer(
 def replicate(
         source_host, source_filesystem, destination_host,
         destination_filesystem, delete, delete_before, delete_excluded,
-        dry_run, no_mount, snapshot_filter, term_encoding, verbose,
+        dry_run, no_mount, recursive, snapshot_filter, term_encoding, verbose,
         zfs_send_options, zfs_recv_options):
 
     error = ""
@@ -235,6 +235,8 @@ def replicate(
                     check_output_ssh(
                         destination_host,
                         ["zfs", "recv", "-A", destination_filesystem])
+
+    replication_stream = (delete and recursive and (not snapshot_filter))
 
     if verbose:
         print(
@@ -407,7 +409,7 @@ def replicate(
         # There is something to send...
 
         if most_recent_common_snapshot:
-            if (not snapshot_filter) and delete:
+            if replication_stream:
                 # If there is no filter, we do not need to worry about skipping
                 # some intermediate snapshots. We can send a replication stream
                 # package all the way to the last snapshot.  A replication
@@ -488,7 +490,7 @@ def replicate(
                 send_command.append("-I")
             send_command.append(
                 f"{source_filesystem}@{most_recent_common_snapshot}")
-        if (not snapshot_filter) and delete:
+        if replication_stream:
             send_command.append("-R")
         send_command.append(f"{source_filesystem}@{next_snapshot}")
 
@@ -507,9 +509,9 @@ def replicate(
         most_recent_common_snapshot = next_snapshot
         successful_transfers = successful_transfers + 1
 
-    # If there was a snapshot filter, we could not send a replication stream
-    # package, so we have to handle deletions ourselves.
-    if snapshot_filter and delete:
+    # If we did not send a replication stream package, we have to handle
+    # deletions ourselves.
+    if snapshot_filter and delete and not replication_stream:
         delete_snapshots(
             source_snapshots_filtered, destination_host,
             destination_filesystem, destination_snapshots, delete_excluded,
@@ -749,8 +751,8 @@ def main():
                 source_host, source_filesystem,
                 destination_host, destination_filesystem,
                 delete, delete_before, delete_excluded, dry_run, no_mount,
-                snapshot_filter, term_encoding, verbose, zfs_send_options,
-                zfs_recv_options)
+                recursive, snapshot_filter, term_encoding, verbose,
+                zfs_send_options, zfs_recv_options)
             if success:
                 # We succeeded.
                 break
