@@ -645,7 +645,8 @@ def main():
         destination_dataset_root = destination_dataset_root.decode(
             term_encoding).strip()
 
-    if source_dataset_root == destination_dataset_root:
+    if (source_host == destination_host
+            and source_dataset_root == destination_dataset_root):
         parser.error("source and destination must be different")
 
     zfs_send_options_to_check = ["-c", "-e", "-L", "-s", "-t"]
