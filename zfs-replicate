@@ -102,7 +102,7 @@ def delete_snapshots(
 
 def get_pool_options(host, pool, term_encoding, verbose):
     if verbose:
-        print(f"Getting pool options...")
+        print("Getting pool options...")
     output = check_output_ssh(
         host, ["zpool", "get", "-Hp", "all", pool],
         stderr=subprocess.STDOUT).decode(term_encoding)
@@ -110,7 +110,9 @@ def get_pool_options(host, pool, term_encoding, verbose):
     for line in output.split('\n'):
         if not line:
             continue
+        # pylint: disable=unused-variable
         (name, prop, value, source) = line.split('\t')
+        # pylint: enable=unused-variable
         if value == '-':
             value = None
         options[prop] = value
