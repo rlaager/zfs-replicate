@@ -634,18 +634,25 @@ def main():
     if destination_dataset_root[0] == "/":
         # Convert the destination from a filesystem path to a dataset path.
         try:
-            destination_dataset_root = check_output_ssh(
-                destination_host,
-                ["zfs", "list", "-H", "-o", "name", "-s", "name",
-                 destination_dataset_root])
+            for line in check_output_ssh(
+                    destination_host,
+                    ["findmnt", "-n", "--output=fstype,source",
+                        destination_dataset_root]).decode(
+                            term_encoding).split("\n"):
+                if not line:
+                    continue
+                (fstype, source) = line.split()
+                if fstype != "zfs":
+                    continue
+                destination_dataset_root = source
         except subprocess.CalledProcessError:
+            pass
+        if destination_dataset_root[0] == "/":
             print(
                 "Please create a ZFS dataset at "
                 f"{destination_host}:{destination_dataset_root}.",
                 file=sys.stderr)
             sys.exit(1)
-        destination_dataset_root = destination_dataset_root.decode(
-            term_encoding).strip()
 
     if (source_host == destination_host
             and source_dataset_root == destination_dataset_root):
