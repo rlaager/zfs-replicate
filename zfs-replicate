@@ -583,8 +583,8 @@ def main():
 
     source = args.source[0].split(":")
     source_len = len(source)
+    source_host = ""
     if source_len == 1:
-        source_host = ""
         source_dataset_root = source[0]
     elif source_len == 2:
         source_host = source[0]
@@ -595,8 +595,10 @@ def main():
 
     destination = args.destination[0].split(":")
     destination_len = len(destination)
+
+    destination_dataset_root = []
+    destination_host = ""
     if destination_len == 1:
-        destination_host = ""
         destination_dataset_root = destination[0]
     elif destination_len == 2:
         destination_host = destination[0]
