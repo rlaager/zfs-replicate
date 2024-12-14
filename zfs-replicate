@@ -27,9 +27,11 @@
 
 import argparse
 from contextlib import suppress
+import queue
 import re
 import subprocess
 import sys
+import threading
 
 ENCRYPTION_PROPERTIES = (
     'encryption',
@@ -118,6 +120,13 @@ def get_pool_options(host, pool, term_encoding, verbose):
         options[prop] = value
     return options
 
+def read_output(process, pipe, output_queue, encoding):
+    while True:
+        line = pipe.readline().decode(encoding)
+        if line == "" and process.poll() is not None:
+            break
+        output_queue.put(line)
+
 def transfer(
         source_host, source_filesystem, destination_host,
         destination_filesystem, send_command, recv_command, dry_run,
@@ -137,42 +146,61 @@ def transfer(
     # pylint: disable=consider-using-with
     if dry_run:
         # Only run the send command (which will be in its dry-run mode).
-        process = subprocess.Popen(
+        send_process = subprocess.Popen(
             send_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            close_fds=True)
+            stderr=subprocess.STDOUT, close_fds=True)
+        recv_process = None
     else:
         # Run the actual replication.
         send_process = subprocess.Popen(
             send_command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            close_fds=True)
-        process = subprocess.Popen(
+            stderr=subprocess.PIPE, close_fds=True)
+        recv_process = subprocess.Popen(
             recv_command, stdin=send_process.stdout, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, close_fds=True)
         # Allow send_process to receive a SIGPIPE if process exits.
         send_process.stdout.close()
     # pylint: enable=consider-using-with
+
+    output_queue = queue.Queue()
+
+    if recv_process:
+        send_thread = threading.Thread(target=read_output, args=(
+            send_process, send_process.stderr, output_queue, term_encoding))
+        recv_thread = threading.Thread(target=read_output, args=(
+            recv_process, recv_process.stdout, output_queue, term_encoding))
+        recv_thread.start()
+    else:
+        send_thread = threading.Thread(target=read_output, args=(
+            send_process, send_process.stdout, output_queue, term_encoding))
+    send_thread.start()
+
     resume_failed = False
     share_failed = False
     while True:
-        nextline = process.stdout.readline().decode(term_encoding)
-        if nextline == "" and process.poll() is not None:
+        try:
+            line = output_queue.get(False)
+        except queue.Empty:
+            pass
+        else:
+            if (line.startswith("cannot resume send:")
+                    or line.startswith("cannot receive resume stream:")):
+                resume_failed = True
+            if "share(1M) failed" in line:
+                share_failed = True
+            if verbose:
+                sys.stderr.write(line)
+                sys.stderr.flush()
+
+        if not (send_thread.is_alive()
+                or (recv_process and recv_thread.is_alive())):
             break
-        if (nextline.startswith("cannot resume send:")
-                or nextline.startswith("cannot receive resume stream:")):
-            resume_failed = True
-        if "share(1M) failed" in nextline:
-            share_failed = True
-        if verbose:
-            sys.stderr.write(nextline)
-            sys.stderr.flush()
-    output = process.communicate()[0].decode(term_encoding)
-    if verbose:
-        sys.stderr.write(output)
-        sys.stderr.flush()
+
     if resume_failed:
         return "Resume failed"
-    if process.returncode != 0 and \
-       not share_failed and "share(1M) failed" not in output:
+    if send_process.returncode != 0 or (
+            not share_failed
+            and recv_process and recv_process.returncode != 0):
         return (
             f"Failed to replicate {source_host}:{source_filesystem} to "
             f"{destination_host}:{destination_filesystem}")
