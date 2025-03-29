@@ -106,8 +106,7 @@ def get_pool_options(host, pool, term_encoding, verbose):
     if verbose:
         print("Getting pool options...")
     output = check_output_ssh(
-        host, ["zpool", "get", "-Hp", "all", pool],
-        stderr=subprocess.STDOUT).decode(term_encoding)
+        host, ["zpool", "get", "-Hp", "all", pool]).decode(term_encoding)
     options = {}
     for line in output.split('\n'):
         if not line:
@@ -225,8 +224,7 @@ def replicate(
             receive_resume_token = check_output_ssh(
                 destination_host,
                 ["zfs", "get", "-H", "-o", "value", "receive_resume_token",
-                 destination_filesystem],
-                stderr=subprocess.STDOUT).decode(term_encoding).strip()
+                 destination_filesystem]).decode(term_encoding).strip()
         except subprocess.CalledProcessError:
             if verbose:
                 print(
@@ -321,8 +319,7 @@ def replicate(
         source_canmount = check_output_ssh(
             source_host,
             ["zfs", "get", "-H", "-o", "value", "canmount",
-             source_filesystem],
-            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+             source_filesystem]).decode(term_encoding).strip()
         if source_canmount == "on":
             zfs_recv_options.extend(["-o", "canmount=noauto"])
 
@@ -372,8 +369,8 @@ def replicate(
                             if x not in ['-e', '-p']]
         source_options = check_output_ssh(
             source_host,
-            ["zfs", "get", "-H", "-p", "all", source_filesystem],
-            stderr=subprocess.STDOUT).decode(term_encoding).strip()
+            ["zfs", "get", "-H", "-p", "all",
+             source_filesystem]).decode(term_encoding).strip()
         for line in source_options.split("\n"):
             (_, prop, value, source) = line.split("\t")
             if (source == 'local' and
