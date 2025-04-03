@@ -545,7 +545,7 @@ def replicate(
 
     # If we did not send a replication stream package, we have to handle
     # deletions ourselves.
-    if snapshot_filter and delete and not replication_stream:
+    if delete and not replication_stream:
         delete_snapshots(
             source_snapshots_filtered, destination_host,
             destination_filesystem, destination_snapshots, delete_excluded,
