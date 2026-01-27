@@ -122,8 +122,11 @@ def get_pool_options(host, pool, term_encoding, verbose):
 def read_output(process, pipe, output_queue, encoding):
     while True:
         line = pipe.readline().decode(encoding)
-        if line == "" and process.poll() is not None:
-            break
+        if line == "":
+            process.wait()
+            # Signal completion to the parent.
+            output_queue.put("")
+            return
         output_queue.put(line)
 
 def transfer(
@@ -169,31 +172,34 @@ def transfer(
         recv_thread = threading.Thread(target=read_output, args=(
             recv_process, recv_process.stdout, output_queue, term_encoding))
         recv_thread.start()
+        remaining_children = 2
     else:
         send_thread = threading.Thread(target=read_output, args=(
             send_process, send_process.stdout, output_queue, term_encoding))
+        remaining_children = 1
     send_thread.start()
 
     resume_failed = False
     share_failed = False
     while True:
         try:
-            line = output_queue.get(False)
+            line = output_queue.get()
         except queue.Empty:
             pass
         else:
-            if (line.startswith("cannot resume send:")
-                    or line.startswith("cannot receive resume stream:")):
-                resume_failed = True
-            if "share(1M) failed" in line:
-                share_failed = True
-            if verbose:
-                sys.stderr.write(line)
-                sys.stderr.flush()
-
-        if not (send_thread.is_alive()
-                or (recv_process and recv_thread.is_alive())):
-            break
+            if line == "":
+                remaining_children -= 1
+                if remaining_children == 0:
+                    break
+            else:
+                if (line.startswith("cannot resume send:")
+                        or line.startswith("cannot receive resume stream:")):
+                    resume_failed = True
+                if "share(1M) failed" in line:
+                    share_failed = True
+                if verbose:
+                    sys.stderr.write(line)
+                    sys.stderr.flush()
 
     if resume_failed:
         return "Resume failed"
