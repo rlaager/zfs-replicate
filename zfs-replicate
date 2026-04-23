@@ -68,7 +68,7 @@ def delete_snapshots(
         term_encoding, verbose):
 
     snapshots_to_delete = None
-    if delete_excluded:
+    if delete_excluded or not snapshot_filter:
         snapshots_to_delete = \
             set(destination_snapshots) - \
             set(source_snapshots_filtered)
